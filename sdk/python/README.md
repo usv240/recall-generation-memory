@@ -42,12 +42,4 @@ recall-relay openai "Editorial cobalt glass product image" --model gpt-image-1 -
 
 ## Publish to PyPI
 
-The repository is ready for PyPI, but publishing needs an account/token owned by the project maintainer:
-
-```bash
-cd sdk/python
-python -m build
-twine upload dist/*
-```
-
-Until then, the GitHub `pip install` command above installs the exact public source.
+The repository includes a secure GitHub Trusted Publishing workflow at `.github/workflows/release.yml`. Configure PyPI to trust `usv240/recall-generation-memory`, workflow `release.yml`, environment `pypi`, then publish a GitHub Release. No long-lived PyPI token is needed. Until then, the GitHub `pip install` command above installs the exact public source.
