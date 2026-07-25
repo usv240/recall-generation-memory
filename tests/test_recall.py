@@ -467,18 +467,19 @@ def test_frontend_has_no_dead_end_reuse_gate_or_encoding_regression():
     assert "The whole idea in one minute" in landing
     assert all(label in landing for label in ("WHAT", "HOW", "WHY"))
     assert "function installHelp" in landing and "data-help=" in landing
-    assert "Plain-English guide for first-time users" in source
-    assert "function installHelp" in source and "data-tip=" in source
+    assert "Plain-English" not in source and "data-tip=" not in source
+    assert "function installHelp" in source and "control.title=control.dataset.help" in source
     action_buttons = re.findall(r'<button class="action[^>]*>', source)
     assert len(action_buttons) >= 14
     assert all("data-help=" in button for button in action_buttons)
     certificate = (frontend / "certificate.html").read_text(encoding="utf-8")
     assert "This page explains which file Recall stored" in certificate
-    assert "What is a B2 asset hash?" in certificate and "What is lineage?" in certificate
+    assert "B2 asset hash" in certificate and "Lineage" in certificate
+    assert "Plain-English" not in landing and "data-tip=" not in landing and "data-tip=" not in certificate
     for page_source in (source, landing, certificate):
         buttons = re.findall(r"<button\b[^>]*>", page_source)
         assert buttons
-        assert all("info-button" in button or "data-help=" in button for button in buttons)
+        assert all("data-help=" in button for button in buttons)
     assert not any(marker in source for marker in ("Ã", "â", "Â", "�"))
     for page in frontend.glob("*.html"):
         page_source = page.read_text(encoding="utf-8")
@@ -526,8 +527,11 @@ def test_frontend_themes_have_accessible_semantic_roles_and_progressive_disclosu
     workspace = (frontend / "app.html").read_text(encoding="utf-8")
     assert "renderLandingMedia" in landing and "fetch('/api/v1/library')" in landing
     assert '<details class="intent-disclosure">' in workspace
-    assert '<details class="guide">' in workspace and '<details class="guide" open>' not in workspace
-    assert "width:24px;height:24px" in landing and "width:24px;height:24px" in workspace
+    assert '<details class="guide"' not in workspace
+    assert '<div class="glossary"' not in landing
+    assert "helpPopover" not in landing and "helpPopover" not in workspace
+    assert "createElement('button')" not in landing and "createElement('button')" not in workspace
+    assert ".onboarding{display:flex" in workspace
 
 def test_exact_reuse_match_skips_external_embedding_call(monkeypatch):
     import backend.app.reuse as reuse_module
