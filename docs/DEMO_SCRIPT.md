@@ -4,7 +4,7 @@
 
 "This approved image already cost the team once. If a teammate cannot find it next week, another model call costs again and may return different pixels. A folder only helps if they already know what to look for. Recall checks shared generation memory before the provider runs."
 
-Show the real Model Spend and Saved by Recall metrics, then point to one approved asset.
+Show Model Spend, Saved by Recall, Paid Calls Avoided, and the real Savings / Spend ratio. The ratio is calculated from actual ledger events, not a projection. Then point to one approved asset.
 
 ## 0:20 - 0:45: more than a DAM
 
@@ -29,7 +29,7 @@ Enter a related prompt. Pause on the live comparison:
 
 "The paid call is paused. I choose the exact original. No provider runs, Recall records the decision receipt, and the avoided cost increases."
 
-Click **Retrieve exact original** and show Saved by Recall and Paid Calls Avoided update.
+Click **Retrieve exact original** and show Saved by Recall, Paid Calls Avoided, and Savings / Spend update. Keep any team-scale projection verbally separate from these live values.
 
 ## 1:43 - 2:08: change only when the need changed
 

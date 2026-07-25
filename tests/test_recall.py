@@ -92,6 +92,12 @@ def test_integrity_and_free_retrieval_are_end_to_end(monkeypatch):
     assert retrieved.json()["avoided_cost_usd"] == 0.067
     totals = client.get("/api/v1/savings").json()
     assert totals["total_saved"] == 0.067
+    assert totals["savings_multiple"] == 1.0
+    landing = client.get("/")
+    assert landing.status_code == 200
+    assert "Loading" not in landing.text
+    assert "{{RECALL_" not in landing.text
+    assert "$0.07" in landing.text and "1.00x" in landing.text
 
 def test_generation_job_records_completion(monkeypatch):
     memory = MemoryStore(); row = sample(memory); main._store = memory
@@ -430,6 +436,7 @@ def test_frontend_has_no_dead_end_reuse_gate_or_encoding_regression():
     landing = (frontend / "index.html").read_text(encoding="utf-8")
     assert "A folder waits until after you remember" in landing
     assert "fetch('/api/v1/savings')" in landing
+    assert "Loading" not in landing and "{{RECALL_SAVINGS_MULTIPLE}}" in landing
     assert not any(marker in source for marker in ("Ã", "â", "Â", "�"))
     for page in frontend.glob("*.html"):
         page_source = page.read_text(encoding="utf-8")

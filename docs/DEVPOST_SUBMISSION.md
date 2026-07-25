@@ -62,6 +62,14 @@ Google Gemini embeddings power semantic recall. They remain an internal B2 catal
 ## Substantially different from Trueprint
 
 Recall and Trueprint solve different problems at different points in the media lifecycle. Recall is a pre-generation spend-control and cross-tool memory product: it prevents redundant provider calls, retrieves approved originals, and measures reuse economics. Trueprint is a post-creation authenticity product: it analyzes whether media and its claims can be trusted. Recall optimizes whether a team should generate; Trueprint evaluates what already exists. They have different users, core workflows, product outcomes, demos, and success metrics even though both use B2 and Genblaze infrastructure.
+| Dimension | Recall | Trueprint |
+| --- | --- | --- |
+| Trigger | Before a provider generation call | After media already exists |
+| Primary user | Creative teams and model integrators | Publishers, reviewers, and authenticity investigators |
+| Core decision | Reuse, fork, or deliberately generate | Trust, challenge, or investigate a media claim |
+| Main outcome | Avoided model cost plus exact retrieval | Authenticity assessment plus supporting evidence |
+| Hero workflow | Reuse Gate, Relay, retrieval, and savings ledger | Competing analysis, provenance review, and verdict |
+| Success metric | Paid calls safely avoided | Claims accurately verified or challenged |
 ## Challenges we ran into
 
 The native Genblaze ObjectStorageSink path returned a B2 401 after a provider successfully produced a local-file asset, while direct B2 persistence with the same bucket and credentials worked. Recall handles this safely by preserving the exact bytes and raw Genblaze manifest directly in B2, and includes a documented reproduction for Genblaze feedback. We also had to separate exact retrieval from model replay: exact B2 retrieval is the reliable, free default; a new model run is honestly treated as a paid variation.

@@ -22,6 +22,12 @@
 8. Show one existing controlled fork and its parent link.
 9. Show the approved Object Lock state, then close on: Recall proves what the team did not need to generate.
 
+## Honest impact framing
+
+- Do not inflate the ledger by repeatedly retrieving the same asset solely for the recording.
+- Lead with three real values together: total saved, paid calls avoided, and real savings divided by generation spend. The ratio gives a small public demo economic weight without inventing dollars.
+- To seed a richer library, use `recall-relay` to capture actual historical outputs and their real caller-reported provider costs. Do not enter fictional costs.
+- If you show a team-scale projection, label it as a projection and keep it separate from the live savings ledger.
 ## Devpost submission
 
 - [ ] Public working URL

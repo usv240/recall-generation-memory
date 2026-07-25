@@ -705,9 +705,12 @@ def savings() -> dict[str, Any]:
     by_asset: dict[str, float] = {}
     for item in priced_reproductions:
         by_asset[item.get("gen_id", "unknown")] = by_asset.get(item.get("gen_id", "unknown"), 0.0) + float(item["avoided_cost_usd"])
+    total_spent = round(sum(float(row["cost_usd"]) for row in priced_rows), 4)
+    total_saved = round(sum(float(item["avoided_cost_usd"]) for item in priced_reproductions), 4)
     return {
-        "total_spent": round(sum(float(row["cost_usd"]) for row in priced_rows), 4),
-        "total_saved": round(sum(float(item["avoided_cost_usd"]) for item in priced_reproductions), 4),
+        "total_spent": total_spent,
+        "total_saved": total_saved,
+        "savings_multiple": round(total_saved / total_spent, 2) if total_spent else None,
         "count_reproduced": len(reproductions),
         "count_generated": len(rows),
         "unpriced_generations": len(rows) - len(priced_rows),
@@ -759,7 +762,23 @@ def certificate_page(gen_id: str) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 def landing_page() -> str:
-    return (FRONTEND / "index.html").read_text(encoding="utf-8")
+    html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+    try:
+        metrics = savings()
+    except Exception:
+        logger.exception("Landing metrics could not be rendered")
+        for token in ("{{RECALL_TOTAL_SPENT}}", "{{RECALL_TOTAL_SAVED}}", "{{RECALL_ASSET_COUNT}}", "{{RECALL_SAVINGS_MULTIPLE}}"):
+            html = html.replace(token, "Unavailable")
+        return html
+    replacements = {
+        "{{RECALL_TOTAL_SPENT}}": f"${metrics['total_spent']:.2f}",
+        "{{RECALL_TOTAL_SAVED}}": f"${metrics['total_saved']:.2f}",
+        "{{RECALL_ASSET_COUNT}}": str(metrics["count_generated"]),
+        "{{RECALL_SAVINGS_MULTIPLE}}": f"{metrics['savings_multiple']:.2f}x" if metrics["savings_multiple"] is not None else "Not available",
+    }
+    for token, value in replacements.items():
+        html = html.replace(token, value)
+    return html
 
 
 @app.get("/app", response_class=HTMLResponse)
