@@ -27,6 +27,8 @@ class MemoryStore:
         return sorted([json.loads(value) for key, value in self.objects.items() if key.startswith("recall/index/runs/")], key=lambda row: row["created"], reverse=True)
     def record_event(self, row): self._events.append(row)
     def save_job(self, row): self.objects[f"recall/index/jobs/{row['job_id']}.json"] = json.dumps(row).encode()
+    def jobs(self):
+        return [json.loads(value) for key, value in self.objects.items() if key.startswith("recall/index/jobs/")]
     def job(self, job_id):
         value = self.objects.get(f"recall/index/jobs/{job_id}.json")
         return json.loads(value) if value else None
@@ -55,7 +57,8 @@ def test_integrity_and_free_retrieval_are_end_to_end(monkeypatch):
     client = TestClient(main.app)
     verified = client.get("/api/v1/gen/gen_demo/verify")
     assert verified.status_code == 200
-    assert verified.json()["status"] == "verified"
+    assert verified.json()["asset_hash_matches"] is True
+    assert verified.json()["manifest_present_on_b2"] is True
     retrieved = client.post("/api/v1/gen/gen_demo/reproduce")
     assert retrieved.status_code == 200
     assert retrieved.json()["avoided_cost_usd"] == 0.067

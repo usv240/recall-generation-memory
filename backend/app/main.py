@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import datetime as dt
+import json
 from concurrent.futures import ThreadPoolExecutor
 import mimetypes
 import uuid
@@ -98,6 +100,23 @@ def _run_job(job_id: str, payload: GenerateRequest, actor: str) -> None:
         job.update({"status": "failed", "completed": now(), "error": str(exc)[:240]})
     store().save_job(job)
 
+def recover_stale_jobs() -> int:
+    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=config.RECALL_JOB_STALE_MINUTES)
+    recovered = 0
+    for job in store().jobs():
+        if job.get("status") not in {"queued", "running"}:
+            continue
+        stamp = job.get("started") or job.get("created")
+        try:
+            created = dt.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if created < cutoff:
+            job.update({"status": "interrupted", "completed": now(), "error": "Worker did not finish before the recovery threshold. Retry safely from the stored request."})
+            store().save_job(job)
+            recovered += 1
+    return recovered
+
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     return {
@@ -117,11 +136,12 @@ def ready() -> dict[str, Any]:
         raise HTTPException(503, "B2 archive is not configured")
     if not config.has_generation_provider:
         raise HTTPException(503, "Generation provider is not configured")
+    recovered_jobs = recover_stale_jobs()
     try:
         store().list_keys("recall/index/")
     except Exception as exc:
         raise HTTPException(503, f"B2 archive check failed: {str(exc)[:120]}") from exc
-    return {"ok": True, "checks": {"b2": "reachable", "generation_provider": "configured"}}
+    return {"ok": True, "checks": {"b2": "reachable", "generation_provider": "configured"}, "recovered_interrupted_jobs": recovered_jobs}
 
 
 @app.post("/api/v1/reuse-check")
@@ -139,14 +159,32 @@ def reuse_check(request: ReuseRequest) -> dict[str, Any]:
 def enqueue_generation(payload: GenerateRequest, request: Request) -> dict[str, Any]:
     actor = require_generation_access(request)
     job_id = f"job_{uuid.uuid4().hex[:12]}"
-    job = {"job_id": job_id, "status": "queued", "created": now(), "prompt": payload.prompt, "parent_gen_id": payload.parent_gen_id, "actor": actor.label}
+    job = {"job_id": job_id, "status": "queued", "created": now(), "prompt": payload.prompt, "parent_gen_id": payload.parent_gen_id, "actor": actor.label, "request": payload.model_dump()}
     store().save_job(job)
     _jobs.submit(_run_job, job_id, payload, actor.label)
     return {"job_id": job_id, "status": "queued", "poll": f"/api/v1/jobs/{job_id}"}
 
 
+@app.post("/api/v1/jobs/{job_id}/retry", status_code=status.HTTP_202_ACCEPTED)
+def retry_generation_job(job_id: str, request: Request) -> dict[str, Any]:
+    previous = store().job(job_id)
+    if not previous:
+        raise HTTPException(404, "generation job not found")
+    if previous.get("status") not in {"failed", "interrupted"}:
+        raise HTTPException(409, "only failed or interrupted jobs may be retried")
+    if not previous.get("request"):
+        raise HTTPException(409, "this legacy job has no recoverable request snapshot")
+    actor = require_generation_access(request)
+    payload = GenerateRequest.model_validate(previous["request"])
+    retry_id = f"job_{uuid.uuid4().hex[:12]}"
+    retry = {"job_id": retry_id, "status": "queued", "created": now(), "prompt": payload.prompt, "parent_gen_id": payload.parent_gen_id, "actor": actor.label, "kind": "retry", "retry_of": job_id, "request": payload.model_dump()}
+    store().save_job(retry)
+    _jobs.submit(_run_job, retry_id, payload, actor.label)
+    return {"job_id": retry_id, "status": "queued", "retry_of": job_id, "poll": f"/api/v1/jobs/{retry_id}"}
+
 @app.get("/api/v1/jobs/{job_id}")
 def generation_job(job_id: str) -> dict[str, Any]:
+    recover_stale_jobs()
     job = store().job(job_id)
     if not job:
         raise HTTPException(404, "generation job not found")
@@ -228,18 +266,46 @@ def verify(gen_id: str) -> dict[str, Any]:
     actual = hashlib.sha256(data).hexdigest()
     expected = row["asset"].get("sha256")
     manifest_present = bool(row.get("raw_manifest_key"))
+    manifest_verified = False
+    manifest_error = None
+    canonical_hash = row.get("genblaze", {}).get("canonical_hash")
     if manifest_present:
-        store().get(row["raw_manifest_key"])
+        try:
+            from genblaze import parse_manifest
+            raw_manifest = json.loads(store().get(row["raw_manifest_key"]))
+            manifest = parse_manifest(raw_manifest)
+            manifest_verified = bool(manifest.verify())
+            canonical_hash = manifest.canonical_hash
+        except Exception as exc:
+            manifest_error = str(exc)[:160]
     return {
         "generation_id": gen_id,
         "asset_sha256": actual,
         "stored_sha256": expected,
         "asset_hash_matches": actual == expected,
         "manifest_present_on_b2": manifest_present,
-        "canonical_manifest_hash": row.get("genblaze", {}).get("canonical_hash"),
-        "status": "verified" if actual == expected and manifest_present else "attention_required",
+        "manifest_verified": manifest_verified,
+        "manifest_error": manifest_error,
+        "canonical_manifest_hash": canonical_hash,
+        "status": "verified" if actual == expected and manifest_verified else "attention_required",
     }
 
+
+@app.post("/api/v1/gen/{gen_id}/rerun", status_code=status.HTTP_202_ACCEPTED)
+def rerun_recipe(gen_id: str, request: Request) -> dict[str, Any]:
+    original = store().generation(gen_id)
+    if not original:
+        raise HTTPException(404, "generation not found")
+    actor = require_generation_access(request)
+    payload = GenerateRequest(
+        prompt=original["prompt"], model=original["model"], params=original.get("params", {}),
+        tags=[*original.get("tags", []), "rerun"], parent_gen_id=gen_id,
+    )
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
+    job = {"job_id": job_id, "status": "queued", "created": now(), "prompt": payload.prompt, "parent_gen_id": gen_id, "actor": actor.label, "kind": "rerun", "source_generation_id": gen_id, "request": payload.model_dump()}
+    store().save_job(job)
+    _jobs.submit(_run_job, job_id, payload, actor.label)
+    return {"job_id": job_id, "status": "queued", "kind": "rerun", "source_generation_id": gen_id, "poll": f"/api/v1/jobs/{job_id}", "note": "This is a new paid Genblaze run using the original stored settings. Exact retrieval remains the free default."}
 
 @app.get("/api/v1/gen/{gen_id}/replay-recipe")
 @app.get("/api/gen/{gen_id}/replay-recipe")

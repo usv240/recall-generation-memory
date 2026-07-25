@@ -77,6 +77,12 @@ class RecallStore:
     def job(self, job_id: str) -> dict[str, Any] | None:
         try: return json.loads(self.get(f"recall/index/jobs/{job_id}.json"))
         except FileNotFoundError: return None
+    def jobs(self) -> list[dict[str, Any]]:
+        out=[]
+        for key in self.list_keys("recall/index/jobs"):
+            try: out.append(json.loads(self.get(key)))
+            except (OSError, json.JSONDecodeError): pass
+        return sorted(out, key=lambda row: row.get("created", ""), reverse=True)
     def events(self) -> list[dict[str, Any]]:
         out=[]
         for key in self.list_keys("recall/index/events"):

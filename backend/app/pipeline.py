@@ -20,6 +20,22 @@ def _manifest_document(manifest: Any) -> dict[str, Any]:
     try: return json.loads(json.dumps(manifest, default=lambda value: getattr(value, "__dict__", str(value))))
     except Exception: return {"unserializable": str(manifest)}
 
+def seal_manifest(raw_manifest: dict[str, Any], asset: dict[str, Any], content_type: str) -> tuple[dict[str, Any], str | None, bool]:
+    """Attach the durable output hash, then recanonicalize the Genblaze manifest."""
+    try:
+        from genblaze import parse_manifest
+        manifest = parse_manifest(raw_manifest)
+        for step in getattr(manifest.run, "steps", []) or []:
+            for output in getattr(step, "assets", []) or []:
+                if not getattr(output, "sha256", None):
+                    output.sha256 = asset["sha256"]
+                    output.size_bytes = asset["bytes"]
+                    output.media_type = content_type
+        manifest.canonical_hash = manifest.compute_hash()
+        sealed = _manifest_document(manifest)
+        return sealed, manifest.canonical_hash, bool(manifest.verify())
+    except Exception:
+        return raw_manifest, None, False
 def manifest_summary(manifest: Any, parent_run_id: str | None) -> dict[str, Any]:
     run=getattr(manifest,"run",None)
     return {"run_id":getattr(run,"run_id",None),"canonical_hash":getattr(manifest,"canonical_hash",None),"parent_run_id":getattr(run,"parent_run_id",None) or parent_run_id,"schema_version":getattr(manifest,"schema_version",None)}
@@ -36,6 +52,10 @@ class RecallPipeline:
         if output is None: raise RuntimeError("Live generation did not return an asset. Nothing was archived; check provider access or model support.")
         extension,content_type=self._image_format(output)
         asset=self.store.put(f"recall/assets/{gen_id}/output.{extension}",output,content_type); asset["content_type"]=content_type
+        raw_manifest, canonical_hash, manifest_verified = seal_manifest(raw_manifest, asset, content_type)
+        if canonical_hash:
+            summary["canonical_hash"] = canonical_hash
+        summary["manifest_verified"] = manifest_verified
         raw_key=f"recall/genblaze-manifests/{gen_id}.json"; self.store.put(raw_key,json.dumps(raw_manifest,indent=2,default=str).encode(),"application/json")
         recipe={"generation":gen_id,"created":now(),"prompt":prompt,"model":model,"params":params,"provider":config.RECALL_PROVIDER,"genblaze":summary,"raw_manifest_key":raw_key}
         manifest_key=f"recall/manifests/{gen_id}.json"; self.store.put(manifest_key,json.dumps(recipe,indent=2).encode(),"application/json")
