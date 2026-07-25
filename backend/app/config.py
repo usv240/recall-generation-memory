@@ -36,6 +36,8 @@ class Config:
     RECALL_FALLBACK_MODELS = [m.strip() for m in (_env("RECALL_FALLBACK_MODELS", "") or "").split(",") if m.strip()]
     RECALL_GENERATION_RETRIES = max(1, int(_env("RECALL_GENERATION_RETRIES", "2") or 2))
     RECALL_JOB_STALE_MINUTES = max(5, int(_env("RECALL_JOB_STALE_MINUTES", "20") or 20))
+    # Salted prompt commitments make ledger receipts useful without retaining prompts.
+    RECALL_RECEIPT_SECRET = _env("RECALL_RECEIPT_SECRET", "local-development-only-change-me") or "local-development-only-change-me"
 
     # A public demo remains usable by judges while protecting provider credits. Supplying
     # RECALL_API_KEYS (comma-separated secrets) gives integrations an authenticated lane.

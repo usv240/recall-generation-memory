@@ -26,6 +26,14 @@ class MemoryStore:
     def generations(self):
         return sorted([json.loads(value) for key, value in self.objects.items() if key.startswith("recall/index/runs/")], key=lambda row: row["created"], reverse=True)
     def record_event(self, row): self._events.append(row)
+    def save_receipt(self, row):
+        key=f"recall/ledger/{row['receipt_id']}.json"; self.objects[key]=json.dumps(row).encode()
+        return {"b2_key":key, "sha256":hashlib.sha256(self.objects[key]).hexdigest(), "bytes":len(self.objects[key])}
+    def receipt(self, receipt_id):
+        value=self.objects.get(f"recall/ledger/{receipt_id}.json")
+        return json.loads(value) if value else None
+    def receipts(self):
+        return sorted([json.loads(value) for key, value in self.objects.items() if key.startswith("recall/ledger/")], key=lambda row: row["created"])
     def save_job(self, row): self.objects[f"recall/index/jobs/{row['job_id']}.json"] = json.dumps(row).encode()
     def jobs(self):
         return [json.loads(value) for key, value in self.objects.items() if key.startswith("recall/index/jobs/")]
@@ -76,3 +84,16 @@ def test_generation_job_records_completion(monkeypatch):
     assert job.status_code == 200
     assert job.json()["status"] == "completed"
     assert job.json()["generation_id"] == "gen_demo"
+
+def test_intent_firewall_blocks_similar_but_wrong_brand_and_receipt_verifies():
+    memory = MemoryStore(); sample(memory); main._store = memory
+    client = TestClient(main.app)
+    allowed = client.post("/api/v1/reuse-check", json={"prompt":"blue launch hero", "tags":["hero"]})
+    assert allowed.status_code == 200
+    assert allowed.json()["recommendation"] == "reuse"
+    receipt_id = allowed.json()["receipt"]["receipt_id"]
+    assert client.get(f"/api/v1/receipts/{receipt_id}/verify").json()["status"] == "verified"
+    blocked = client.post("/api/v1/reuse-check", json={"prompt":"blue launch hero", "intent":{"brand":"Different Brand"}})
+    assert blocked.status_code == 200
+    assert blocked.json()["recommendation"] == "generate"
+    assert blocked.json()["blockers"][0]["field"] == "brand"

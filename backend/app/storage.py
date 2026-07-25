@@ -73,6 +73,17 @@ class RecallStore:
             except (OSError, json.JSONDecodeError): pass
         return sorted(out, key=lambda row: row.get("created", ""), reverse=True)
     def record_event(self, event: dict[str, Any]) -> None: self.put(f"recall/index/events/{event['event_id']}.json", json.dumps(event).encode(), "application/json")
+    def save_receipt(self, receipt: dict[str, Any]) -> dict[str, Any]:
+        return self.put(f"recall/ledger/{receipt['receipt_id']}.json", json.dumps(receipt, indent=2).encode(), "application/json", lock_days=config.B2_LOCK_DAYS)
+    def receipt(self, receipt_id: str) -> dict[str, Any] | None:
+        try: return json.loads(self.get(f"recall/ledger/{receipt_id}.json"))
+        except FileNotFoundError: return None
+    def receipts(self) -> list[dict[str, Any]]:
+        out=[]
+        for key in self.list_keys("recall/ledger"):
+            try: out.append(json.loads(self.get(key)))
+            except (OSError, json.JSONDecodeError): pass
+        return sorted(out, key=lambda row: row.get("created", ""))
     def save_job(self, job: dict[str, Any]) -> None: self.put(f"recall/index/jobs/{job['job_id']}.json", json.dumps(job, indent=2).encode(), "application/json")
     def job(self, job_id: str) -> dict[str, Any] | None:
         try: return json.loads(self.get(f"recall/index/jobs/{job_id}.json"))

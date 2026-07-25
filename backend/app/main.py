@@ -17,6 +17,8 @@ from pydantic import BaseModel, Field
 from .config import config
 from .pipeline import RecallPipeline
 from .reuse import rank
+from .policy import POLICY_VERSION, clean_intent, decision
+from .ledger import create_receipt, verify_receipt
 from .security import require_generation_access
 from .storage import RecallStore, now
 
@@ -55,22 +57,33 @@ def store() -> RecallStore:
     return _store
 
 
+class IntentProfile(BaseModel):
+    campaign: str | None = Field(default=None, max_length=120)
+    brand: str | None = Field(default=None, max_length=120)
+    format: str | None = Field(default=None, max_length=80)
+    license: str | None = Field(default=None, max_length=120)
+    language: str | None = Field(default=None, max_length=80)
+
+
 class GenerateRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=1000)
     model: str | None = None
     params: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list, max_length=20)
     parent_gen_id: str | None = None
+    intent: IntentProfile = Field(default_factory=IntentProfile)
 
 
 class ReuseRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=1000)
     tags: list[str] = Field(default_factory=list, max_length=20)
+    intent: IntentProfile = Field(default_factory=IntentProfile)
 
 
 class ForkRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=1000)
     params: dict[str, Any] = Field(default_factory=dict)
+    intent: IntentProfile = Field(default_factory=IntentProfile)
 
 
 def public(row: dict[str, Any]) -> dict[str, Any]:
@@ -92,7 +105,7 @@ def _run_job(job_id: str, payload: GenerateRequest, actor: str) -> None:
     job.update({"status": "running", "started": now()})
     store().save_job(job)
     try:
-        row = RecallPipeline(store()).generate(prompt=payload.prompt, model=payload.model or config.RECALL_MODEL, params=payload.params, tags=payload.tags, parent_id=payload.parent_gen_id)
+        row = RecallPipeline(store()).generate(prompt=payload.prompt, model=payload.model or config.RECALL_MODEL, params=payload.params, tags=payload.tags, parent_id=payload.parent_gen_id, intent=clean_intent(payload.intent.model_dump()))
         event("generate", gen_id=row["gen_id"], actor=actor, model=row["model"], cost_usd=row.get("cost_usd"), job_id=job_id)
         job.update({"status": "completed", "completed": now(), "generation_id": row["gen_id"]})
     except Exception as exc:
@@ -148,9 +161,17 @@ def ready() -> dict[str, Any]:
 @app.post("/api/reuse-check")
 def reuse_check(request: ReuseRequest) -> dict[str, Any]:
     matches = rank(request.prompt, request.tags, store().generations())
+    intent = clean_intent(request.intent.model_dump())
+    recommendation, blockers, reason = decision(matches, intent)
+    receipts = store().receipts()
+    receipt = create_receipt(prompt=request.prompt, intent=intent, recommendation=recommendation, reason=reason, blockers=blockers, match=matches[0] if matches else None, previous_receipt_hash=receipts[-1]["receipt_hash"] if receipts else None)
+    stored = store().save_receipt(receipt)
+    event("reuse_assessed", gen_id=matches[0]["generation"].get("gen_id") if matches else None, recommendation=recommendation, receipt_id=receipt["receipt_id"], policy_version=POLICY_VERSION)
     return {
-        "recommendation": "reuse" if matches and matches[0]["score"] >= 0.7 else "generate",
+        "recommendation": recommendation,
         "matches": [{**public(item["generation"]), "similarity": item["score"], "match_type": item["match"]} for item in matches],
+        "intent": intent, "policy_version": POLICY_VERSION, "blockers": blockers, "reason": reason,
+        "receipt": {"receipt_id": receipt["receipt_id"], "receipt_hash": receipt["receipt_hash"], "b2_key": stored["b2_key"], "verify_url": f"/api/v1/receipts/{receipt['receipt_id']}/verify"},
         "note": "Near matches are suggestions; Recall never reuses an asset without an explicit user action.",
     }
 
@@ -203,6 +224,7 @@ def generate(payload: GenerateRequest, request: Request) -> dict[str, Any]:
             params=payload.params,
             tags=payload.tags,
             parent_id=payload.parent_gen_id,
+            intent=clean_intent(payload.intent.model_dump()),
         )
         event("generate", gen_id=row["gen_id"], actor=actor.label, model=row["model"], cost_usd=row.get("cost_usd"))
         return public(row)
@@ -311,6 +333,23 @@ def evidence_bundle(gen_id: str) -> dict[str, Any]:
         "note": "This bundle intentionally omits service credentials and semantic embedding vectors.",
     }
 
+@app.get("/api/v1/receipts/{receipt_id}")
+def receipt(receipt_id: str) -> dict[str, Any]:
+    value = store().receipt(receipt_id)
+    if not value:
+        raise HTTPException(404, "reuse receipt not found")
+    return value
+
+
+@app.get("/api/v1/receipts/{receipt_id}/verify")
+def verify_reuse_receipt(receipt_id: str) -> dict[str, Any]:
+    values = store().receipts()
+    index = next((i for i, value in enumerate(values) if value.get("receipt_id") == receipt_id), None)
+    if index is None:
+        raise HTTPException(404, "reuse receipt not found")
+    return {**verify_receipt(values[index], values[index - 1] if index else None), "object_lock_retention_days": config.B2_LOCK_DAYS, "storage": store().mode}
+
+
 @app.post("/api/v1/gen/{gen_id}/rerun", status_code=status.HTTP_202_ACCEPTED)
 def rerun_recipe(gen_id: str, request: Request) -> dict[str, Any]:
     original = store().generation(gen_id)
@@ -319,7 +358,7 @@ def rerun_recipe(gen_id: str, request: Request) -> dict[str, Any]:
     actor = require_generation_access(request)
     payload = GenerateRequest(
         prompt=original["prompt"], model=original["model"], params=original.get("params", {}),
-        tags=[*original.get("tags", []), "rerun"], parent_gen_id=gen_id,
+        tags=[*original.get("tags", []), "rerun"], parent_gen_id=gen_id, intent=IntentProfile(**original.get("intent", {})),
     )
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     job = {"job_id": job_id, "status": "queued", "created": now(), "prompt": payload.prompt, "parent_gen_id": gen_id, "actor": actor.label, "kind": "rerun", "source_generation_id": gen_id, "request": payload.model_dump()}
@@ -355,7 +394,7 @@ def fork(gen_id: str, payload: ForkRequest, request: Request) -> dict[str, Any]:
         raise HTTPException(404, "generation not found")
     actor = require_generation_access(request)
     try:
-        row = RecallPipeline(store()).generate(prompt=payload.prompt, model=parent["model"], params={**parent.get("params", {}), **payload.params}, tags=parent.get("tags", []), parent_id=gen_id)
+        row = RecallPipeline(store()).generate(prompt=payload.prompt, model=parent["model"], params={**parent.get("params", {}), **payload.params}, tags=parent.get("tags", []), parent_id=gen_id, intent=clean_intent(payload.intent.model_dump()) or parent.get("intent", {}))
         event("fork", gen_id=row["gen_id"], actor=actor.label, parent_gen_id=gen_id, cost_usd=row.get("cost_usd"))
         return public(row)
     except RuntimeError as exc:

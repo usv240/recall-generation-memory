@@ -42,7 +42,7 @@ def manifest_summary(manifest: Any, parent_run_id: str | None) -> dict[str, Any]
 
 class RecallPipeline:
     def __init__(self,store:RecallStore)->None: self.store=store
-    def generate(self,*,prompt:str,model:str,params:dict[str,Any],tags:list[str],parent_id:str|None=None)->dict[str,Any]:
+    def generate(self,*,prompt:str,model:str,params:dict[str,Any],tags:list[str],parent_id:str|None=None,intent:dict[str, Any]|None=None)->dict[str,Any]:
         gen_id=f"gen_{uuid.uuid4().hex[:12]}"; parent_run_id=None
         if parent_id:
             parent=self.store.generation(parent_id)
@@ -62,7 +62,7 @@ class RecallPipeline:
         cost=summary.get("cost_usd") if summary else None
         vector=embed(prompt)
         semantic={"model":config.GOOGLE_EMBEDDING_MODEL,"embedding":vector} if vector else None
-        row={"gen_id":gen_id,"created":recipe["created"],"modality":"image","prompt":prompt,"provider":config.RECALL_PROVIDER,"model":model,"params":params,"tags":tags,"genblaze":summary,"asset":asset,"manifest_key":manifest_key,"raw_manifest_key":raw_key,"cost_usd":float(cost) if cost is not None else None,"parent_gen_id":parent_id,"locked":False,"approval":None,"semantic":semantic}
+        row={"gen_id":gen_id,"created":recipe["created"],"modality":"image","prompt":prompt,"provider":config.RECALL_PROVIDER,"model":model,"params":params,"tags":tags,"genblaze":summary,"asset":asset,"manifest_key":manifest_key,"raw_manifest_key":raw_key,"cost_usd":float(cost) if cost is not None else None,"parent_gen_id":parent_id,"intent":intent or {},"locked":False,"approval":None,"semantic":semantic}
         self.store.save_generation(row); return row
     @staticmethod
     def _image_format(data:bytes)->tuple[str,str]:
