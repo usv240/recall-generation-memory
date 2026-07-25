@@ -1,0 +1,13 @@
+{
+  "title": "Recall live reuse-gate evaluation",
+  "evaluated_at": "2026-07-25",
+  "endpoint": "https://recall-production-production.up.railway.app/api/v1/reuse-check",
+  "method": "Four read-only production requests. The expected item is the first result; no generation was invoked.",
+  "results": [
+    {"query": "Editorial product photograph for Recall: a premium creative-asset archive, cobalt glass square on warm white paper, clean studio lighting", "expected": "gen_4c3dfb56bff6", "top_result": "gen_4c3dfb56bff6", "similarity": 0.942, "match_type": "semantic-similar"},
+    {"query": "premium editorial image of a cobalt glass square on warm paper for Recall", "expected": "gen_4c3dfb56bff6", "top_result": "gen_4c3dfb56bff6", "similarity": 0.906, "match_type": "semantic-similar"},
+    {"query": "clean cobalt and ivory climate technology launch visual with a wind turbine and wave forms", "expected": "gen_d779feda2a04", "top_result": "gen_d779feda2a04", "similarity": 0.966, "match_type": "semantic-similar"},
+    {"query": "blue and ivory wind energy launch artwork with turbine and flowing waves", "expected": "gen_d779feda2a04", "top_result": "gen_d779feda2a04", "similarity": 0.903, "match_type": "semantic-similar"}
+  ],
+  "summary": {"top_1_accuracy": 1.0, "queries": 4, "note": "This is a small, transparent smoke evaluation using the live demo library?not a general benchmark claim."}
+}
