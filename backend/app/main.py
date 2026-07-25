@@ -40,7 +40,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=config.RECALL_CORS_ORIGINS or ["*"],
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "Authorization", "X-Recall-Key"],
+    allow_headers=["Content-Type", "Authorization", "X-Recall-Key", "X-Recall-Workspace", "X-Recall-Workspace-Key"],
 )
 
 

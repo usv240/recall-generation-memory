@@ -34,11 +34,11 @@ Recall stores SHA-256 for every output. `POST /api/v1/capture` deduplicates an e
 ## Install the relay
 
 ```bash
-pip install "git+https://github.com/usv240/recall-generation-memory.git#subdirectory=sdk/python"
+pip install recall-relay
 recall-relay doctor
 ```
 
-The package is build-tested. It can be published to PyPI once the project owner supplies a PyPI trusted-publishing setup or API token.
+The package is published to PyPI through GitHub Trusted Publishing; no long-lived PyPI token is used.
 
 ## Gemini quickstart
 
@@ -68,3 +68,16 @@ recall-relay openai "Editorial cobalt glass product image" --model gpt-image-1 -
 ```
 
 The client calls `POST /v1/images/generations` only after Recall returns a safe miss, asks for base64 image data, and captures those bytes in the private workspace. The OpenAI key is never sent to Recall.
+
+## Any provider relay
+
+`RecallRelay.generate_with()` is the provider-neutral integration point. It accepts a local callback that returns completed media bytes. Recall runs the reuse and policy check first; only a safe miss invokes the callback, then the bytes are captured with the provider/model details. This lets an application add Recall in front of any image, video, or audio provider without proxying its provider credential through Recall.
+
+```python
+result = relay.generate_with(
+    "Cobalt launch asset",
+    generator=lambda prompt: call_your_provider(prompt),
+    provider="your-provider", model="your-model", media_type="image/png",
+    tags=["launch"], intent={"brand":"Acme", "format":"1:1"},
+)
+```

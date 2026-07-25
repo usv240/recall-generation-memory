@@ -163,3 +163,28 @@ def test_openai_relay_does_not_call_provider_on_reuse(monkeypatch):
     result = relay.generate_openai("same creative request")
     assert result.status == "reused"
     assert calls == ["https://recall.example/api/v1/reuse-check"]
+
+
+def test_custom_relay_skips_provider_on_reuse(monkeypatch):
+    relay = RecallRelay("https://recall.example", workspace_id="ws-example", workspace_key="workspace-secret")
+    monkeypatch.setattr(relay, "_post", lambda url, body, headers=None: {"recommendation":"reuse", "matches":[{"gen_id":"gen_existing"}], "receipt":{"receipt_id":"rr_existing"}})
+    invoked = []
+    result = relay.generate_with("same creative request", lambda prompt: invoked.append(prompt) or b"new-media", provider="custom", model="model-x")
+    assert result.status == "reused"
+    assert invoked == []
+
+
+def test_custom_relay_captures_only_after_safe_miss(monkeypatch):
+    relay = RecallRelay("https://recall.example", workspace_id="ws-example", workspace_key="workspace-secret")
+    calls = []
+    def fake_post(url, body, headers=None):
+        calls.append((url, body))
+        if url.endswith("/reuse-check"):
+            return {"recommendation":"generate", "matches":[], "receipt":{"receipt_id":"rr_miss"}}
+        return {"generation":{"gen_id":"cap_new", "asset_url":"https://asset.example"}}
+    monkeypatch.setattr(relay, "_post", fake_post)
+    result = relay.generate_with("new creative request", lambda prompt: b"provider-media", provider="custom", model="model-x", tags=["launch"])
+    assert result.status == "generated_and_captured"
+    assert result.media == b"provider-media"
+    assert calls[1][1]["provider"] == "custom"
+    assert calls[1][1]["params"]["relay"] == "custom-provider"

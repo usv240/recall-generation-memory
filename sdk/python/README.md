@@ -43,3 +43,25 @@ recall-relay openai "Editorial cobalt glass product image" --model gpt-image-1 -
 ## Publish to PyPI
 
 The repository includes a secure GitHub Trusted Publishing workflow at `.github/workflows/release.yml`. Configure PyPI to trust `usv240/recall-generation-memory`, workflow `release.yml`, environment `pypi`, then publish a GitHub Release. No long-lived PyPI token is needed. Until then, the GitHub `pip install` command above installs the exact public source.
+
+## Any provider: the adoption API
+
+Use `generate_with()` to add Recall in front of any image, video, or audio provider. The provider call and its credentials stay in your application; Recall only receives completed media after a safe miss.
+
+```python
+from recall_relay import RecallRelay
+
+relay = RecallRelay("https://your-recall.example", workspace_id="ws-...", workspace_key="...")
+
+result = relay.generate_with(
+    "A launch visual for our cobalt collection",
+    generator=lambda prompt: call_your_provider(prompt),  # returns bytes
+    provider="your-provider",
+    model="your-model",
+    media_type="image/png",
+    tags=["launch", "cobalt"],
+    intent={"brand": "Acme", "format": "1:1"},
+)
+```
+
+On `reused`, `call_your_provider` is never invoked. On `generated_and_captured`, Recall stores the output, byte hash, provider/model record, and reuse receipt for the next request.

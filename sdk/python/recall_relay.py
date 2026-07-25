@@ -5,7 +5,7 @@ Your Gemini key is read locally and is sent only to Google. Recall receives it n
 from __future__ import annotations
 import base64, json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 from urllib.request import Request, urlopen
 
 @dataclass
@@ -37,6 +37,22 @@ class RecallRelay:
         headers={"X-Recall-Key":self.recall_key} if self.recall_key else {}
         return self._post(self.recall_url+"/api/v1/capture", {"prompt":prompt,"media_base64":media_base64,"media_type":media_type,"provider":provider,"model":model,"tags":tags,"intent":intent,"params":params}, headers)
 
+    def generate_with(self, prompt: str, generator: Callable[[str], bytes], *, provider: str, model: str, media_type: str="image/png", tags: list[str] | None=None, intent: dict[str, str] | None=None, params: dict[str, Any] | None=None) -> RelayResult:
+        """Reuse first, then run any caller-owned media generator only on a safe miss.
+
+        ``generator`` executes in the caller's process, so its provider credentials never
+        transit Recall. It must return the completed media bytes for archival.
+        """
+        tags, intent, params = tags or [], intent or {}, params or {}
+        gate = self._check(prompt, tags, intent)
+        if gate["recommendation"] == "reuse":
+            return RelayResult("reused", gate["matches"][0], gate["receipt"])
+        media = generator(prompt)
+        if not isinstance(media, bytes) or not media:
+            raise TypeError("generator must return non-empty media bytes")
+        encoded = base64.b64encode(media).decode()
+        captured = self._capture(prompt=prompt, media_base64=encoded, media_type=media_type, provider=provider, model=model, tags=tags, intent=intent, params={"relay":"custom-provider", **params})
+        return RelayResult("generated_and_captured", captured["generation"], gate["receipt"], media)
     def generate_gemini(self, prompt: str, *, model: str="gemini-3.1-flash-image", tags: list[str] | None=None, intent: dict[str, str] | None=None, response_format: dict[str, Any] | None=None) -> RelayResult:
         tags, intent = tags or [], intent or {}
         gate=self._check(prompt, tags, intent)
