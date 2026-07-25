@@ -20,6 +20,13 @@ The hosted demo allows a small, IP-scoped number of paid generations per hour. E
 5. **Savings accounting** records the real avoided replacement cost every time an asset is retrieved.
 6. **Approval and retention** copies a final asset into a B2 Object Lock retention path.
 
+## Install the Relay
+
+```bash
+pip install "git+https://github.com/usv240/recall-generation-memory.git#subdirectory=sdk/python"
+recall-relay doctor
+```
+
 ## Private by default
 
 - [Recall Vault](docs/VAULT.md) ? isolated B2 workspace prefixes and workspace credentials.

@@ -31,6 +31,15 @@ Every assessment produces a Recall Ledger receipt. The raw prompt is retained on
 
 Recall stores SHA-256 for every output. `POST /api/v1/capture` deduplicates an externally generated asset when its exact bytes are already archived, avoiding an additional B2 copy. Image captures also compute a 64-bit difference hash for future resized/compressed near-duplicate lookup. Exact output matching saves storage; prompt/semantic matching before provider invocation is what saves model cost.
 
+## Install the relay
+
+```bash
+pip install "git+https://github.com/usv240/recall-generation-memory.git#subdirectory=sdk/python"
+recall-relay doctor
+```
+
+The package is build-tested. It can be published to PyPI once the project owner supplies a PyPI trusted-publishing setup or API token.
+
 ## Gemini quickstart
 
 ```python
