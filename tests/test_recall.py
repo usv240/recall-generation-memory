@@ -4,6 +4,8 @@ import base64
 import hashlib
 import json
 import sys
+from io import BytesIO
+from urllib.error import HTTPError
 from pathlib import Path
 from fastapi.testclient import TestClient
 
@@ -12,7 +14,8 @@ from backend.app.reuse import rank
 from backend.app.storage import RecallStore
 from backend.app.config import config
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sdk" / "python"))
-from recall_relay import RecallRelay
+import recall_relay as relay_module
+from recall_relay import RecallRelay, RecallRelayError
 
 
 class MemoryStore:
@@ -115,18 +118,25 @@ def test_intent_firewall_blocks_similar_but_wrong_brand_and_receipt_verifies():
 def test_external_capture_deduplicates_and_is_honest_about_provenance(monkeypatch):
     memory = MemoryStore(); main._store = memory
     monkeypatch.setattr(main, "embed", lambda prompt: None)
+    monkeypatch.setattr(config, "RECALL_API_KEYS", ["test-integration-key"])
     client = TestClient(main.app)
-    payload = {"prompt":"outside workflow hero", "media_base64":base64.b64encode(b"external media bytes").decode(), "media_type":"image/png", "provider":"bring-your-own", "model":"model-x"}
-    first = client.post("/api/v1/capture", json=payload)
+    payload = {"prompt":"outside workflow hero", "media_base64":base64.b64encode(b"external media bytes").decode(), "media_type":"image/png", "provider":"bring-your-own", "model":"model-x", "cost_usd":0.12}
+    headers = {"X-Recall-Key":"test-integration-key"}
+    first = client.post("/api/v1/capture", json=payload, headers=headers)
     assert first.status_code == 200
     assert first.json()["deduplicated"] is False
     generation = first.json()["generation"]
     assert generation["provenance_kind"] == "external_capture"
-    duplicate = client.post("/api/v1/capture", json=payload)
+    assert generation["cost_usd"] == 0.12
+    assert generation["cost_source"] == "caller_reported"
+    duplicate = client.post("/api/v1/capture", json=payload, headers=headers)
     assert duplicate.status_code == 200
     assert duplicate.json()["deduplicated"] is True
     checked = client.get(f"/api/v1/gen/{generation['gen_id']}/verify").json()
     assert checked["status"] == "externally_captured_asset_verified"
+    retrieved = client.post(f"/api/v1/gen/{generation['gen_id']}/reproduce").json()
+    assert retrieved["avoided_cost_usd"] == 0.12
+    assert client.get("/api/v1/savings").json()["total_saved"] == 0.12
 
 
 def test_feedback_prevents_the_same_rejected_prompt_candidate_pair(monkeypatch):
@@ -158,20 +168,29 @@ def test_openai_relay_does_not_call_provider_on_reuse(monkeypatch):
     calls = []
     def fake_post(url, body, headers=None):
         calls.append(url)
-        return {"recommendation":"reuse", "matches":[{"gen_id":"gen_existing","asset_url":"https://asset.example"}], "receipt":{"receipt_id":"rr_existing"}}
+        if url.endswith("/reuse-check"):
+            return {"recommendation":"reuse", "matches":[{"gen_id":"gen_existing","asset_url":"https://asset.example"}], "receipt":{"receipt_id":"rr_existing"}}
+        return {"generation":{"gen_id":"gen_existing","asset_url":"https://asset.example"}, "avoided_cost_usd":0.25}
     monkeypatch.setattr(relay, "_post", fake_post)
     result = relay.generate_openai("same creative request")
     assert result.status == "reused"
-    assert calls == ["https://recall.example/api/v1/reuse-check"]
+    assert calls == ["https://recall.example/api/v1/reuse-check", "https://recall.example/api/v1/gen/gen_existing/reproduce"]
 
 
 def test_custom_relay_skips_provider_on_reuse(monkeypatch):
     relay = RecallRelay("https://recall.example", workspace_id="ws-example", workspace_key="workspace-secret")
-    monkeypatch.setattr(relay, "_post", lambda url, body, headers=None: {"recommendation":"reuse", "matches":[{"gen_id":"gen_existing"}], "receipt":{"receipt_id":"rr_existing"}})
+    calls = []
+    def fake_post(url, body, headers=None):
+        calls.append(url)
+        if url.endswith("/reuse-check"):
+            return {"recommendation":"reuse", "matches":[{"gen_id":"gen_existing"}], "receipt":{"receipt_id":"rr_existing"}}
+        return {"generation":{"gen_id":"gen_existing"}, "avoided_cost_usd":0.42}
+    monkeypatch.setattr(relay, "_post", fake_post)
     invoked = []
     result = relay.generate_with("same creative request", lambda prompt: invoked.append(prompt) or b"new-media", provider="custom", model="model-x")
     assert result.status == "reused"
     assert invoked == []
+    assert calls[-1].endswith("/gen/gen_existing/reproduce")
 
 
 def test_custom_relay_captures_only_after_safe_miss(monkeypatch):
@@ -183,8 +202,43 @@ def test_custom_relay_captures_only_after_safe_miss(monkeypatch):
             return {"recommendation":"generate", "matches":[], "receipt":{"receipt_id":"rr_miss"}}
         return {"generation":{"gen_id":"cap_new", "asset_url":"https://asset.example"}}
     monkeypatch.setattr(relay, "_post", fake_post)
-    result = relay.generate_with("new creative request", lambda prompt: b"provider-media", provider="custom", model="model-x", tags=["launch"])
+    result = relay.generate_with("new creative request", lambda prompt: b"provider-media", provider="custom", model="model-x", tags=["launch"], cost_usd=0.42)
     assert result.status == "generated_and_captured"
     assert result.media == b"provider-media"
     assert calls[1][1]["provider"] == "custom"
     assert calls[1][1]["params"]["relay"] == "custom-provider"
+    assert calls[1][1]["cost_usd"] == 0.42
+
+def test_external_capture_rejects_public_uploads(monkeypatch):
+    memory = MemoryStore(); main._store = memory
+    monkeypatch.setattr(config, "RECALL_API_KEYS", ["test-integration-key"])
+    client = TestClient(main.app)
+    payload = {"prompt":"unauthorized upload", "media_base64":base64.b64encode(b"bytes").decode()}
+    response = client.post("/api/v1/capture", json=payload)
+    assert response.status_code == 401
+    assert memory.generations() == []
+
+def test_custom_relay_rejects_invalid_cost_before_provider():
+    relay = RecallRelay("https://recall.example", workspace_id="ws-example", workspace_key="workspace-secret")
+    invoked = []
+    try:
+        relay.generate_with("new request", lambda prompt: invoked.append(prompt) or b"bytes", provider="custom", model="model-x", cost_usd=-0.01)
+    except ValueError as exc:
+        assert "cost_usd" in str(exc)
+    else:
+        raise AssertionError("negative cost should be rejected")
+    assert invoked == []
+
+def test_relay_http_error_is_actionable_and_secret_safe(monkeypatch):
+    relay = RecallRelay("https://recall.example", recall_key="never-print-this-key")
+    def fail(request, timeout):
+        raise HTTPError(request.full_url, 401, "Unauthorized", {}, BytesIO(b'{"detail":"Invalid Recall integration key"}'))
+    monkeypatch.setattr(relay_module, "urlopen", fail)
+    try:
+        relay._check("test prompt", [], {})
+    except RecallRelayError as exc:
+        assert exc.status == 401
+        assert "Invalid Recall integration key" in str(exc)
+        assert "never-print-this-key" not in str(exc)
+    else:
+        raise AssertionError("HTTP errors must become RecallRelayError")

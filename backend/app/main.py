@@ -26,7 +26,7 @@ from .policy import POLICY_VERSION, clean_intent, decision
 from .ledger import create_receipt, verify_receipt, prompt_commitment
 from .semantic import embed
 from .media import image_dhash, sha256
-from .security import require_generation_access, require_private_api_key
+from .security import require_generation_access, require_integration_access, require_private_api_key
 from .storage import RecallStore, now
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -132,6 +132,7 @@ class CaptureRequest(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list, max_length=20)
     intent: IntentProfile = Field(default_factory=IntentProfile)
+    cost_usd: float | None = Field(default=None, ge=0, le=100_000)
 
 
 class WorkspaceCreateRequest(BaseModel):
@@ -266,20 +267,20 @@ def archive_capture(payload: CaptureRequest, actor: str) -> tuple[dict[str, Any]
     asset = store().put(f"recall/assets/{gen_id}/output.{suffix}", media, payload.media_type)
     asset["content_type"] = payload.media_type
     created = now()
-    provenance = {"schema":"recall-external-capture/v1", "captured_at":created, "provider":payload.provider, "model":payload.model, "asset_sha256":media_hash, "note":"Captured after provider completion; this record is not represented as a Genblaze-generated manifest."}
+    provenance = {"schema":"recall-external-capture/v1", "captured_at":created, "provider":payload.provider, "model":payload.model, "asset_sha256":media_hash, "cost_usd":payload.cost_usd, "cost_source":"caller_reported" if payload.cost_usd is not None else "unpriced", "note":"Captured after provider completion; this record is not represented as a Genblaze-generated manifest."}
     raw_key = f"recall/captures/{gen_id}.json"; store().put(raw_key, json.dumps(provenance, indent=2).encode(), "application/json")
-    recipe = {"generation":gen_id, "created":created, "prompt":payload.prompt, "model":payload.model, "params":payload.params, "provider":payload.provider, "capture_provenance_key":raw_key}
+    recipe = {"generation":gen_id, "created":created, "prompt":payload.prompt, "model":payload.model, "params":payload.params, "provider":payload.provider, "cost_usd":payload.cost_usd, "cost_source":"caller_reported" if payload.cost_usd is not None else "unpriced", "capture_provenance_key":raw_key}
     manifest_key = f"recall/manifests/{gen_id}.json"; store().put(manifest_key, json.dumps(recipe, indent=2).encode(), "application/json")
     vector=embed(payload.prompt)
-    row={"gen_id":gen_id,"created":created,"modality":payload.media_type.split("/",1)[0],"prompt":payload.prompt,"provider":payload.provider,"model":payload.model,"params":payload.params,"tags":payload.tags,"genblaze":{},"provenance_kind":"external_capture","asset":asset,"manifest_key":manifest_key,"raw_manifest_key":raw_key,"cost_usd":None,"parent_gen_id":None,"intent":clean_intent(payload.intent.model_dump()),"media_fingerprint":image_dhash(media),"locked":False,"approval":None,"semantic":{"model":config.GOOGLE_EMBEDDING_MODEL,"embedding":vector} if vector else None}
-    store().save_generation(row); event("capture", gen_id=gen_id, actor=actor, provider=payload.provider, model=payload.model, asset_sha256=media_hash)
+    row={"gen_id":gen_id,"created":created,"modality":payload.media_type.split("/",1)[0],"prompt":payload.prompt,"provider":payload.provider,"model":payload.model,"params":payload.params,"tags":payload.tags,"genblaze":{},"provenance_kind":"external_capture","asset":asset,"manifest_key":manifest_key,"raw_manifest_key":raw_key,"cost_usd":payload.cost_usd,"cost_source":"caller_reported" if payload.cost_usd is not None else "unpriced","parent_gen_id":None,"intent":clean_intent(payload.intent.model_dump()),"media_fingerprint":image_dhash(media),"locked":False,"approval":None,"semantic":{"model":config.GOOGLE_EMBEDDING_MODEL,"embedding":vector} if vector else None}
+    store().save_generation(row); event("capture", gen_id=gen_id, actor=actor, provider=payload.provider, model=payload.model, asset_sha256=media_hash, cost_usd=payload.cost_usd)
     return row, False
 
 
 @app.post("/api/v1/capture")
 def capture_completed_media(payload: CaptureRequest, request: Request) -> dict[str, Any]:
     """Archive a completed BYO-provider result; it never invokes a model."""
-    actor = require_generation_access(request)
+    actor = require_integration_access(request)
     row, duplicate = archive_capture(payload, actor.label)
     return {"generation":public(row), "deduplicated":duplicate, "message":"Existing asset reused without another B2 copy." if duplicate else "Captured provider output into Recall memory."}
 

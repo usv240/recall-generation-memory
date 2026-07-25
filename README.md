@@ -33,11 +33,11 @@ recall-relay doctor
 
 ## Use your own model
 
-- [Recall Relay](docs/RELAY.md) - local Gemini relay and external capture API; provider keys never enter Recall.
+- [Recall Relay](docs/RELAY.md) - provider-neutral pre-generation SDK and authenticated capture API; provider keys never enter Recall.
 
 ### Make any provider reusable before it runs
 
-ecall-relay now exposes generate_with(): your application supplies a local provider callback, Recall checks its private memory first, and only a safe miss invokes the provider. The completed bytes are then archived with a receipt. This makes Recall a provider-neutral spend-control API, not a model-specific wrapper.
+`recall-relay` exposes `generate_with()`: your application supplies a local provider callback, Recall checks its private memory first, and only a safe miss invokes the provider. The completed bytes are archived with a caller-reported cost, integrity hash, and reuse receipt. This makes Recall a provider-neutral spend-control API, not a model-specific wrapper.
 
 ## Native Genblaze storage
 
@@ -127,7 +127,7 @@ Use `.env.example` as the full environment reference. In production:
 ## Verification
 
 ```powershell
-..\..\.venv\Scripts\python.exe -m pytest -q tests
+python -m pytest -q tests
 ```
 
 ## Provider and cost honesty
