@@ -16,13 +16,17 @@ class RelayResult:
     media: bytes | None = None
 
 class RecallRelay:
-    def __init__(self, recall_url: str, *, recall_key: str | None = None, gemini_key: str | None = None) -> None:
+    def __init__(self, recall_url: str, *, recall_key: str | None = None, gemini_key: str | None = None, workspace_id: str | None = None, workspace_key: str | None = None) -> None:
         self.recall_url=recall_url.rstrip("/")
         self.recall_key=recall_key
         self.gemini_key=gemini_key
+        self.workspace_id=workspace_id
+        self.workspace_key=workspace_key
+        if bool(workspace_id) != bool(workspace_key): raise ValueError("workspace_id and workspace_key must be supplied together")
 
     def _post(self, url: str, body: dict[str, Any], headers: dict[str, str] | None = None) -> dict[str, Any]:
-        request=Request(url, data=json.dumps(body).encode(), headers={"Content-Type":"application/json", **(headers or {})})
+        workspace_headers = {"X-Recall-Workspace":self.workspace_id, "X-Recall-Workspace-Key":self.workspace_key} if self.workspace_id else {}
+        request=Request(url, data=json.dumps(body).encode(), headers={"Content-Type":"application/json", **workspace_headers, **(headers or {})})
         return json.load(urlopen(request, timeout=180))
 
     def generate_gemini(self, prompt: str, *, model: str="gemini-3.1-flash-image", tags: list[str] | None=None, intent: dict[str, str] | None=None, response_format: dict[str, Any] | None=None) -> RelayResult:

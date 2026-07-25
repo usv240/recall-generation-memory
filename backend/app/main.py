@@ -1,29 +1,32 @@
 from __future__ import annotations
 
 import base64
+import contextvars
 import binascii
 import hashlib
 import datetime as dt
 import json
 from concurrent.futures import ThreadPoolExecutor
 import mimetypes
+import secrets
+import hmac
 import uuid
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from .config import config
 from .pipeline import RecallPipeline
 from .reuse import rank
 from .policy import POLICY_VERSION, clean_intent, decision
-from .ledger import create_receipt, verify_receipt
+from .ledger import create_receipt, verify_receipt, prompt_commitment
 from .semantic import embed
 from .media import image_dhash, sha256
-from .security import require_generation_access
+from .security import require_generation_access, require_private_api_key
 from .storage import RecallStore, now
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -51,14 +54,44 @@ async def security_headers(request: Request, call_next: Any) -> Response:
 
 
 _store: RecallStore | None = None
+_workspace_stores: dict[str, RecallStore] = {}
+_workspace_context: contextvars.ContextVar[str | None] = contextvars.ContextVar("recall_workspace", default=None)
 _jobs = ThreadPoolExecutor(max_workers=2, thread_name_prefix='recall-generation')
 
 
-def store() -> RecallStore:
+def root_store() -> RecallStore:
     global _store
     if _store is None:
         _store = RecallStore()
     return _store
+
+
+def store() -> RecallStore:
+    workspace_id = _workspace_context.get()
+    if not workspace_id:
+        return root_store()
+    if workspace_id not in _workspace_stores:
+        _workspace_stores[workspace_id] = RecallStore(workspace_id)
+    return _workspace_stores[workspace_id]
+
+
+@app.middleware("http")
+async def workspace_scope(request: Request, call_next: Any) -> Response:
+    workspace_id = request.headers.get("x-recall-workspace", "").strip()
+    if not workspace_id:
+        return await call_next(request)
+    token = request.headers.get("x-recall-workspace-key", "").strip()
+    record = root_store().workspace(workspace_id)
+    expected = (record or {}).get("key_sha256", "")
+    supplied = hashlib.sha256(token.encode()).hexdigest() if token else ""
+    if not expected or not hmac.compare_digest(expected, supplied):
+        return JSONResponse(status_code=401, content={"detail": "Invalid Recall workspace credentials."})
+    marker = _workspace_context.set(workspace_id)
+    request.state.workspace_actor = f"workspace_{workspace_id}"
+    try:
+        return await call_next(request)
+    finally:
+        _workspace_context.reset(marker)
 
 
 class IntentProfile(BaseModel):
@@ -99,6 +132,16 @@ class CaptureRequest(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list, max_length=20)
     intent: IntentProfile = Field(default_factory=IntentProfile)
+
+
+class WorkspaceCreateRequest(BaseModel):
+    label: str = Field(min_length=2, max_length=80)
+
+
+class FeedbackRequest(BaseModel):
+    receipt_id: str = Field(min_length=4, max_length=80)
+    verdict: str = Field(pattern="^(correct_reuse|too_similar|never_suggest|always_eligible)$")
+    note: str = Field(default="", max_length=500)
 
 
 def public(row: dict[str, Any]) -> dict[str, Any]:
@@ -145,6 +188,15 @@ def recover_stale_jobs() -> int:
             recovered += 1
     return recovered
 
+@app.post("/api/v1/workspaces", status_code=status.HTTP_201_CREATED)
+def create_workspace(payload: WorkspaceCreateRequest, request: Request) -> dict[str, Any]:
+    actor = require_private_api_key(request)
+    workspace_id = f"ws-{secrets.token_hex(8)}"
+    workspace_key = secrets.token_urlsafe(32)
+    root_store().save_workspace({"workspace_id":workspace_id, "label":payload.label, "created":now(), "created_by":actor.label, "key_sha256":hashlib.sha256(workspace_key.encode()).hexdigest(), "storage_prefix":f"recall/workspaces/{workspace_id}/"})
+    return {"workspace_id":workspace_id, "workspace_key":workspace_key, "storage_prefix":f"recall/workspaces/{workspace_id}/", "warning":"Save workspace_key now. It is never stored or returned again."}
+
+
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     return {
@@ -178,6 +230,12 @@ def reuse_check(request: ReuseRequest) -> dict[str, Any]:
     matches = rank(request.prompt, request.tags, store().generations())
     intent = clean_intent(request.intent.model_dump())
     recommendation, blockers, reason = decision(matches, intent)
+    if matches:
+        candidate_id = matches[0]["generation"].get("gen_id")
+        commitment = prompt_commitment(request.prompt)
+        feedback = [item for item in store().feedback() if item.get("candidate_gen_id") == candidate_id and item.get("prompt_commitment_hmac_sha256") == commitment]
+        if any(item.get("verdict") in {"too_similar", "never_suggest"} for item in feedback):
+            recommendation, blockers, reason = "generate", [{"field":"user_feedback", "requested":"new generation", "candidate":candidate_id, "reason":"previously_rejected"}], "This exact request/candidate pair was previously rejected by the workspace."
     receipts = store().receipts()
     receipt = create_receipt(prompt=request.prompt, intent=intent, recommendation=recommendation, reason=reason, blockers=blockers, match=matches[0] if matches else None, previous_receipt_hash=receipts[-1]["receipt_hash"] if receipts else None)
     stored = store().save_receipt(receipt)
@@ -384,6 +442,21 @@ def evidence_bundle(gen_id: str) -> dict[str, Any]:
         "note": "This bundle intentionally omits service credentials and semantic embedding vectors.",
     }
 
+@app.post("/api/v1/reuse-feedback")
+def reuse_feedback(payload: FeedbackRequest, request: Request) -> dict[str, Any]:
+    actor = require_generation_access(request, consume_public_quota=False)
+    receipt = store().receipt(payload.receipt_id)
+    if not receipt:
+        raise HTTPException(404, "reuse receipt not found")
+    candidate = receipt.get("candidate") or {}
+    if not candidate.get("generation_id"):
+        raise HTTPException(409, "this receipt has no candidate to calibrate")
+    feedback = {"feedback_id":f"fb_{uuid.uuid4().hex[:12]}", "created":now(), "actor":actor.label, "receipt_id":payload.receipt_id, "verdict":payload.verdict, "note":payload.note, "candidate_gen_id":candidate["generation_id"], "prompt_commitment_hmac_sha256":receipt["prompt_commitment_hmac_sha256"], "policy_version":receipt.get("policy_version")}
+    store().record_feedback(feedback)
+    event("reuse_feedback", gen_id=candidate["generation_id"], actor=actor.label, verdict=payload.verdict, receipt_id=payload.receipt_id)
+    return {"status":"recorded", "feedback_id":feedback["feedback_id"], "message":"Future checks will honor this exact request/candidate rejection." if payload.verdict in {"too_similar", "never_suggest"} else "Feedback recorded for workspace calibration."}
+
+
 @app.get("/api/v1/receipts/{receipt_id}")
 def receipt(receipt_id: str) -> dict[str, Any]:
     value = store().receipt(receipt_id)
@@ -498,7 +571,10 @@ def integration() -> dict[str, Any]:
         "openapi": "/openapi.json",
         "authentication": "Use X-Recall-Key or Authorization: Bearer <key> for protected automation. The hosted demo also provides a tightly rate-limited public lane.",
         "flows": {
+            "workspace": "POST /api/v1/workspaces (one-time workspace key; requires X-Recall-Key)",
             "reuse_check": "POST /api/v1/reuse-check",
+            "feedback": "POST /api/v1/reuse-feedback",
+            "capture": "POST /api/v1/capture",
             "generate": "POST /api/v1/generate",
             "retrieve": "POST /api/v1/gen/{id}/reproduce",
             "fork": "POST /api/v1/gen/{id}/fork",

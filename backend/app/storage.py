@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 from .config import config
@@ -14,7 +15,9 @@ def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 class RecallStore:
-    def __init__(self) -> None:
+    def __init__(self, workspace_id: str | None = None) -> None:
+        if workspace_id and not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,62}", workspace_id): raise ValueError("invalid workspace id")
+        self.workspace_id = workspace_id
         self._remote = None
         if config.has_b2:
             from genblaze_s3 import S3StorageBackend
@@ -24,7 +27,17 @@ class RecallStore:
     @property
     def mode(self) -> str: return "b2" if self._remote else "local"
 
+    def _scoped_key(self, key: str) -> str:
+        if not self.workspace_id: return key
+        if not key.startswith("recall/"): raise ValueError("Recall storage keys must begin with recall/")
+        return f"recall/workspaces/{self.workspace_id}/{key.removeprefix('recall/')}"
+
+    def _logical_key(self, key: str) -> str:
+        prefix = f"recall/workspaces/{self.workspace_id}/" if self.workspace_id else ""
+        return "recall/" + key.removeprefix(prefix) if prefix and key.startswith(prefix) else key
+
     def put(self, key: str, data: bytes, content_type: str = "application/octet-stream", *, lock_days: int | None = None) -> dict[str, Any]:
+        key = self._scoped_key(key)
         if self._remote:
             kwargs: dict[str, Any] = {"content_type": content_type}
             if lock_days:
@@ -38,29 +51,32 @@ class RecallStore:
             except TypeError: self._remote.put(key, data)
         else:
             target = self._local_path(key); target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data)
-        return {"b2_key": key, "sha256": sha256_hex(data), "bytes": len(data)}
+        return {"b2_key": self._logical_key(key), "sha256": sha256_hex(data), "bytes": len(data)}
 
     def get(self, key: str) -> bytes:
+        key = self._scoped_key(key)
         if self._remote:
             value = self._remote.get(key)
             return bytes(value if isinstance(value, (bytes, bytearray)) else getattr(value, "data", value))
         return self._local_path(key).read_bytes()
 
     def url(self, key: str) -> str:
+        key = self._scoped_key(key)
         if self._remote:
             value = self._remote.presigned_get_url(key, expires_in=3600)
             return value if isinstance(value, str) else getattr(value, "url", str(value))
         return f"/api/object/{key}"
 
     def list_keys(self, prefix: str) -> list[str]:
+        prefix = self._scoped_key(prefix)
         if self._remote:
             page = self._remote.list(prefix, max_keys=1000); out=[]
             for item in getattr(page, "entries", []) or []:
                 key = getattr(item, "key", None) or (item.get("key") if isinstance(item, dict) else None)
-                if key: out.append(key)
+                if key: out.append(self._logical_key(key))
             return out
         root=self._local_path(prefix)
-        return [] if not root.exists() else [p.relative_to(config.LOCAL_DATA_DIR).as_posix() for p in root.rglob("*") if p.is_file()]
+        return [] if not root.exists() else [self._logical_key(p.relative_to(config.LOCAL_DATA_DIR).as_posix()) for p in root.rglob("*") if p.is_file()]
 
     def save_generation(self, generation: dict[str, Any]) -> None: self.put(f"recall/index/runs/{generation['gen_id']}.json", json.dumps(generation, indent=2).encode(), "application/json")
     def generation(self, gen_id: str) -> dict[str, Any] | None:
@@ -97,6 +113,22 @@ class RecallStore:
     def events(self) -> list[dict[str, Any]]:
         out=[]
         for key in self.list_keys("recall/index/events"):
+            try: out.append(json.loads(self.get(key)))
+            except (OSError, json.JSONDecodeError): pass
+        return out
+    # Workspace identities always live in the unscoped system registry.
+    def save_workspace(self, workspace: dict[str, Any]) -> None:
+        if self.workspace_id: raise ValueError("workspace registry requires root store")
+        self.put(f"recall/system/workspaces/{workspace['workspace_id']}.json", json.dumps(workspace, indent=2).encode(), "application/json")
+    def workspace(self, workspace_id: str) -> dict[str, Any] | None:
+        if self.workspace_id: raise ValueError("workspace registry requires root store")
+        try: return json.loads(self.get(f"recall/system/workspaces/{workspace_id}.json"))
+        except FileNotFoundError: return None
+    def record_feedback(self, feedback: dict[str, Any]) -> None:
+        self.put(f"recall/index/feedback/{feedback['feedback_id']}.json", json.dumps(feedback).encode(), "application/json")
+    def feedback(self) -> list[dict[str, Any]]:
+        out=[]
+        for key in self.list_keys("recall/index/feedback"):
             try: out.append(json.loads(self.get(key)))
             except (OSError, json.JSONDecodeError): pass
         return out

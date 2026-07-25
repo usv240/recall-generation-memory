@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 
 from backend.app import main
 from backend.app.reuse import rank
+from backend.app.storage import RecallStore
+from backend.app.config import config
 
 
 class MemoryStore:
@@ -14,6 +16,8 @@ class MemoryStore:
     def __init__(self):
         self.objects = {}
         self._events = []
+        self._feedback = []
+        self._workspaces = {}
     def put(self, key, data, content_type="application/octet-stream", **kwargs):
         self.objects[key] = data
         return {"b2_key": key, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
@@ -42,6 +46,10 @@ class MemoryStore:
         value = self.objects.get(f"recall/index/jobs/{job_id}.json")
         return json.loads(value) if value else None
     def events(self): return self._events
+    def record_feedback(self, row): self._feedback.append(row)
+    def feedback(self): return self._feedback
+    def save_workspace(self, row): self._workspaces[row["workspace_id"]] = row
+    def workspace(self, workspace_id): return self._workspaces.get(workspace_id)
     def approve(self, row): return {"status":"locked", "asset": row["asset"], "retention_days":30}
 
 
@@ -115,3 +123,27 @@ def test_external_capture_deduplicates_and_is_honest_about_provenance(monkeypatc
     assert duplicate.json()["deduplicated"] is True
     checked = client.get(f"/api/v1/gen/{generation['gen_id']}/verify").json()
     assert checked["status"] == "externally_captured_asset_verified"
+
+
+def test_feedback_prevents_the_same_rejected_prompt_candidate_pair(monkeypatch):
+    memory = MemoryStore(); sample(memory); main._store = memory
+    client = TestClient(main.app)
+    payload = {"prompt":"blue launch hero"}
+    recommendation = client.post("/api/v1/reuse-check", json=payload).json()
+    response = client.post("/api/v1/reuse-feedback", json={"receipt_id":recommendation["receipt"]["receipt_id"], "verdict":"never_suggest"})
+    assert response.status_code == 200
+    retried = client.post("/api/v1/reuse-check", json=payload).json()
+    assert retried["recommendation"] == "generate"
+    assert retried["blockers"][0]["reason"] == "previously_rejected"
+
+
+def test_workspace_store_is_prefix_isolated_locally(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "B2_KEY_ID", None)
+    monkeypatch.setattr(config, "B2_APP_KEY", None)
+    monkeypatch.setattr(config, "LOCAL_DATA_DIR", tmp_path)
+    alpha, beta = RecallStore("ws-alpha"), RecallStore("ws-beta")
+    alpha.put("recall/index/runs/only-alpha.json", b"alpha", "application/json")
+    beta.put("recall/index/runs/only-beta.json", b"beta", "application/json")
+    assert alpha.get("recall/index/runs/only-alpha.json") == b"alpha"
+    assert "recall/index/runs/only-alpha.json" in alpha.list_keys("recall/index/runs")
+    assert "recall/index/runs/only-alpha.json" not in beta.list_keys("recall/index/runs")

@@ -55,7 +55,16 @@ def _api_key_actor(request: Request) -> Actor | None:
     return None
 
 
+def require_private_api_key(request: Request) -> Actor:
+    actor = _api_key_actor(request)
+    if not actor: raise HTTPException(401, "An X-Recall-Key is required for this operation.")
+    return actor
+
+
 def require_generation_access(request: Request, *, consume_public_quota: bool = True) -> Actor:
+    workspace_actor = getattr(request.state, "workspace_actor", None)
+    if workspace_actor:
+        return Actor("workspace", workspace_actor)
     actor = _api_key_actor(request)
     if actor:
         return actor

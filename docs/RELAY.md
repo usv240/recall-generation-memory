@@ -4,6 +4,19 @@ Recall Relay is a bring-your-own-key integration pattern. It checks a user-owned
 
 Provider credentials are never sent to Recall or written to B2. For a hosted relay endpoint, use a scoped Recall integration key; for the strongest privacy model, self-host Recall against your own B2 bucket.
 
+
+## Private workspace setup
+
+Create a workspace once with an existing scoped Recall integration key:
+
+```bash
+curl -X POST https://your-recall.example/api/v1/workspaces \
+  -H "X-Recall-Key: your-integration-key" -H "Content-Type: application/json" \
+  -d '{"label":"My private creative vault"}'
+```
+
+Save the returned `workspace_id` and one-time `workspace_key` in your password manager. Pass both to `RecallRelay`; every asset, prompt, receipt, feedback record, and search then lives under its isolated B2 prefix. Do not place them in frontend code.
+
 ## What prompt matching does today
 
 1. **Exact:** normalized prompt equality is always a 1.0 exact match.
@@ -22,7 +35,7 @@ Recall stores SHA-256 for every output. `POST /api/v1/capture` deduplicates an e
 
 ```python
 from recall_relay import RecallRelay
-relay = RecallRelay("https://your-recall.example", recall_key="your scoped Recall key", gemini_key="your Gemini key")
+relay = RecallRelay("https://your-recall.example", gemini_key="your Gemini key", workspace_id="ws-...", workspace_key="save-this-once")
 result = relay.generate_gemini(
     "Editorial cobalt glass product image on warm paper",
     tags=["launch", "cobalt"],
