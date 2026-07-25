@@ -1,0 +1,75 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from fastapi.testclient import TestClient
+
+from backend.app import main
+from backend.app.reuse import rank
+
+
+class MemoryStore:
+    mode = "b2"
+    def __init__(self):
+        self.objects = {}
+        self._events = []
+    def put(self, key, data, content_type="application/octet-stream", **kwargs):
+        self.objects[key] = data
+        return {"b2_key": key, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+    def get(self, key): return self.objects[key]
+    def url(self, key): return f"https://example.test/{key}"
+    def list_keys(self, prefix): return [key for key in self.objects if key.startswith(prefix)]
+    def save_generation(self, row): self.objects[f"recall/index/runs/{row['gen_id']}.json"] = json.dumps(row).encode()
+    def generation(self, gen_id):
+        value = self.objects.get(f"recall/index/runs/{gen_id}.json")
+        return json.loads(value) if value else None
+    def generations(self):
+        return sorted([json.loads(value) for key, value in self.objects.items() if key.startswith("recall/index/runs/")], key=lambda row: row["created"], reverse=True)
+    def record_event(self, row): self._events.append(row)
+    def save_job(self, row): self.objects[f"recall/index/jobs/{row['job_id']}.json"] = json.dumps(row).encode()
+    def job(self, job_id):
+        value = self.objects.get(f"recall/index/jobs/{job_id}.json")
+        return json.loads(value) if value else None
+    def events(self): return self._events
+    def approve(self, row): return {"status":"locked", "asset": row["asset"], "retention_days":30}
+
+
+def sample(store):
+    asset = store.put("recall/assets/gen_demo/output.jpg", b"demo", "image/jpeg")
+    row = {"gen_id":"gen_demo","created":"2026-01-01T00:00:00+00:00","prompt":"blue launch hero","model":"gemini-image","provider":"google","params":{},"tags":["hero","blue"],"asset":asset,"manifest_key":"recall/manifests/gen_demo.json","raw_manifest_key":"recall/genblaze-manifests/gen_demo.json","genblaze":{"canonical_hash":"abc"},"cost_usd":0.067,"parent_gen_id":None,"locked":False,"approval":None}
+    store.put(row["raw_manifest_key"], b"{}", "application/json")
+    store.put(row["manifest_key"], b"{}", "application/json")
+    store.save_generation(row)
+    return row
+
+
+def test_reuse_exact_match_is_explicit():
+    rows = [{"prompt":"Blue launch hero", "tags":[], "created":"2026"}]
+    result = rank("blue launch hero", [], rows)
+    assert result[0]["match"] == "exact"
+    assert result[0]["score"] == 1.0
+
+
+def test_integrity_and_free_retrieval_are_end_to_end(monkeypatch):
+    memory = MemoryStore(); sample(memory); main._store = memory
+    client = TestClient(main.app)
+    verified = client.get("/api/v1/gen/gen_demo/verify")
+    assert verified.status_code == 200
+    assert verified.json()["status"] == "verified"
+    retrieved = client.post("/api/v1/gen/gen_demo/reproduce")
+    assert retrieved.status_code == 200
+    assert retrieved.json()["avoided_cost_usd"] == 0.067
+    totals = client.get("/api/v1/savings").json()
+    assert totals["total_saved"] == 0.067
+
+def test_generation_job_records_completion(monkeypatch):
+    memory = MemoryStore(); row = sample(memory); main._store = memory
+    monkeypatch.setattr(main._jobs, "submit", lambda fn, *args: fn(*args))
+    monkeypatch.setattr(main.RecallPipeline, "generate", lambda self, **kwargs: row)
+    client = TestClient(main.app)
+    created = client.post("/api/v1/jobs/generate", json={"prompt":"new hero", "tags":["hero"]})
+    assert created.status_code == 202
+    job = client.get(created.json()["poll"])
+    assert job.status_code == 200
+    assert job.json()["status"] == "completed"
+    assert job.json()["generation_id"] == "gen_demo"
