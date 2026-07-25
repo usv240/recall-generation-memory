@@ -37,7 +37,7 @@ recall-relay doctor
 
 ## Native Genblaze storage
 
-Recall verifies the official native `ObjectStorageSink` path against B2 on the current Genblaze package set; direct B2 persistence remains defense in depth.
+Recall verifies the native `ObjectStorageSink` backend path against B2; the live provider pipeline remains safely feature-gated while direct B2 persistence preserves all generated outputs and canonical Genblaze manifests.
 
 ## Differentiated safety
 
