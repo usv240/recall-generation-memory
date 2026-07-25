@@ -23,17 +23,17 @@ The hosted demo allows a small, IP-scoped number of paid generations per hour. E
 ## Install the Relay
 
 ```bash
-pip install "git+https://github.com/usv240/recall-generation-memory.git#subdirectory=sdk/python"
+pip install recall-relay
 recall-relay doctor
 ```
 
 ## Private by default
 
-- [Recall Vault](docs/VAULT.md) ? isolated B2 workspace prefixes and workspace credentials.
+- [Recall Vault](docs/VAULT.md) - isolated B2 workspace prefixes and workspace credentials.
 
 ## Use your own model
 
-- [Recall Relay](docs/RELAY.md) ? local Gemini relay and external capture API; provider keys never enter Recall.
+- [Recall Relay](docs/RELAY.md) - local Gemini relay and external capture API; provider keys never enter Recall.
 
 ## Native Genblaze storage
 
@@ -41,12 +41,12 @@ Recall verifies the native `ObjectStorageSink` backend path against B2; the live
 
 ## Differentiated safety
 
-- [Recall Ledger + Intent Firewall](docs/RECALL_LEDGER.md) ? a tamper-evident record of avoided generation and policy-aware reuse that blocks similar-but-wrong assets.
+- [Recall Ledger + Intent Firewall](docs/RECALL_LEDGER.md) - a tamper-evident record of avoided generation and policy-aware reuse that blocks similar-but-wrong assets.
 
 ## Evidence
 
-- [Live reuse evaluation](docs/EVALUATION.md) ? transparent production smoke test of semantic retrieval.
-- [Judge evidence](docs/EVIDENCE.md) ? B2, Genblaze, provenance, and research links.
+- [Live reuse evaluation](docs/EVALUATION.md) - transparent production smoke test of semantic retrieval.
+- [Judge evidence](docs/EVIDENCE.md) - B2, Genblaze, provenance, and research links.
 
 ## Architecture
 
@@ -69,14 +69,29 @@ Backblaze B2 is the system of record: media bytes, raw Genblaze manifests, reada
 
 ## Run locally
 
+1. Copy `.env.example` to `.env` and set your B2 credentials plus one provider key.
+
+### Docker (recommended)
+
 ```powershell
-cd next-project\recall
-copy .env.example .env
-# Set B2 credentials and one provider key.
-..\..\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload
+Copy-Item .env.example .env
+# Edit .env, then:
+docker compose up --build
 ```
 
-Then open `http://127.0.0.1:8000/app`.
+Open `http://127.0.0.1:8080/app`.
+
+### Python
+
+```powershell
+Copy-Item .env.example .env
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r backend/requirements.txt
+uvicorn backend.app.main:app --reload
+```
+
+Open `http://127.0.0.1:8000/app`.
 
 ## API examples
 
