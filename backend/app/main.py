@@ -680,7 +680,47 @@ def reproduce(gen_id: str, request: Request) -> dict[str, Any]:
         raise HTTPException(404, "generation not found")
     actor = require_generation_access(request, consume_public_quota=False)
     accounting_recorded = event("reproduce", gen_id=gen_id, actor=actor.label, avoided_cost_usd=row.get("cost_usd"))
-    return {"generation": public(row), "message": "Exact stored asset retrieved - no new generation charge.", "avoided_cost_usd": row.get("cost_usd"), "accounting_recorded":accounting_recorded}
+    return {
+        "generation": public(row),
+        "download_url": f"/api/v1/gen/{gen_id}/download",
+        "message": "Exact stored asset retrieved - no new generation charge.",
+        "avoided_cost_usd": row.get("cost_usd"),
+        "accounting_recorded": accounting_recorded,
+    }
+
+
+@app.get("/api/v1/gen/{gen_id}/download")
+@app.get("/api/gen/{gen_id}/download")
+def download_generation(gen_id: str, request: Request) -> Response:
+    row = store().generation(gen_id)
+    if not row:
+        raise HTTPException(404, "generation not found")
+    require_generation_access(request, consume_public_quota=False)
+    asset = row.get("asset") or {}
+    key = asset.get("b2_key")
+    if not key:
+        raise HTTPException(409, "generation has no stored asset")
+    try:
+        data = store().get(key)
+    except Exception as exc:
+        logger.warning("asset_download_failed gen_id=%s error_type=%s", gen_id, type(exc).__name__)
+        raise HTTPException(502, "stored asset is temporarily unavailable") from exc
+    content_type = str(asset.get("content_type") or mimetypes.guess_type(key)[0] or "application/octet-stream")
+    if not re.fullmatch(r"[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+", content_type):
+        content_type = "application/octet-stream"
+    suffix = Path(key).suffix.lower()
+    if not re.fullmatch(r"\.[a-z0-9]{1,10}", suffix):
+        suffix = mimetypes.guess_extension(content_type) or ".bin"
+    safe_id = re.sub(r"[^A-Za-z0-9_-]+", "-", gen_id).strip("-") or "asset"
+    filename = f"recall-{safe_id}{suffix}"
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 @app.post("/api/v1/gen/{gen_id}/fork")

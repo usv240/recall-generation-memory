@@ -91,6 +91,13 @@ def test_integrity_and_free_retrieval_are_end_to_end(monkeypatch):
     retrieved = client.post("/api/v1/gen/gen_demo/reproduce")
     assert retrieved.status_code == 200
     assert retrieved.json()["avoided_cost_usd"] == 0.067
+    assert retrieved.json()["download_url"] == "/api/v1/gen/gen_demo/download"
+    downloaded = client.get(retrieved.json()["download_url"])
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"demo"
+    assert downloaded.headers["content-type"] == "image/jpeg"
+    assert downloaded.headers["content-disposition"] == 'attachment; filename="recall-gen_demo.jpg"'
+    assert downloaded.headers["cache-control"] == "private, no-store"
     totals = client.get("/api/v1/savings").json()
     assert totals["total_saved"] == 0.067
     assert totals["savings_multiple"] == 1.0
@@ -111,6 +118,16 @@ def test_generation_job_records_completion(monkeypatch):
     assert job.status_code == 200
     assert job.json()["status"] == "completed"
     assert job.json()["generation_id"] == "gen_demo"
+
+def test_exact_download_handles_missing_asset_without_counting_savings():
+    memory = MemoryStore(); sample(memory); main._store = memory
+    del memory.objects["recall/assets/gen_demo/output.jpg"]
+    client = TestClient(main.app)
+    downloaded = client.get("/api/v1/gen/gen_demo/download")
+    assert downloaded.status_code == 502
+    assert downloaded.json()["detail"] == "stored asset is temporarily unavailable"
+    assert client.get("/api/v1/savings").json()["count_reproduced"] == 0
+
 
 def test_intent_firewall_blocks_similar_but_wrong_brand_and_receipt_verifies():
     memory = MemoryStore(); sample(memory); main._store = memory
@@ -459,7 +476,7 @@ def test_frontend_has_no_dead_end_reuse_gate_or_encoding_regression():
     assert 'loading="lazy"' in source
     assert "mediaPreview" in source and "<video" in source and "<audio" in source
     assert "GENERATE AGAIN" in source and "$0.00 model cost" in source
-    assert "Retrieve exact original" in source and "Paid recipe replay" in source
+    assert "Download exact original" in source and "Paid recipe replay" in source
     landing = (frontend / "index.html").read_text(encoding="utf-8")
     assert "A folder waits until after you remember" in landing
     assert "fetch('/api/v1/savings')" in landing
