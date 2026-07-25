@@ -342,6 +342,32 @@ def test_receipt_chain_remains_linear_under_concurrent_checks():
         assert verify_receipt(receipt, previous)["status"] == "verified"
 
 
+def test_savings_snapshot_is_cached_and_updated_by_real_retrievals():
+    class CountingStore(MemoryStore):
+        def __init__(self):
+            super().__init__()
+            self.generation_reads = 0
+            self.event_reads = 0
+        def generations(self):
+            self.generation_reads += 1
+            return super().generations()
+        def events(self):
+            self.event_reads += 1
+            return super().events()
+
+    memory = CountingStore(); sample(memory); main._store = memory
+    main._savings_cache.clear(); main._savings_refreshing.clear()
+    client = TestClient(main.app)
+    assert client.get("/api/v1/savings").status_code == 200
+    assert client.get("/api/v1/savings").status_code == 200
+    assert memory.generation_reads == 1 and memory.event_reads == 1
+    retrieved = client.post("/api/v1/gen/gen_demo/reproduce")
+    assert retrieved.status_code == 200
+    updated = client.get("/api/v1/savings").json()
+    assert updated["total_saved"] == 0.067
+    assert updated["savings_multiple"] == 1.0
+    assert memory.generation_reads == 1 and memory.event_reads == 1
+
 def test_savings_ignores_unrelated_unpriced_events():
     memory = MemoryStore(); sample(memory); main._store = memory
     memory.record_event({"kind":"generate", "gen_id":"gen_demo"})

@@ -7,12 +7,14 @@ import hashlib
 import datetime as dt
 import json
 import logging
+from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 import mimetypes
 import re
 import secrets
 import hmac
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Annotated, Any
@@ -35,10 +37,22 @@ from .storage import RecallStore, now
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = ROOT / "frontend"
 logger = logging.getLogger("recall")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    try:
+        _savings_snapshot(force=True)
+    except Exception as exc:
+        logger.warning("savings_warm_failed error_type=%s", type(exc).__name__)
+    yield
+
+
 app = FastAPI(
     title="Recall API",
     version="1.0.0",
     description="A provenance-first reusable generation memory powered by Genblaze and Backblaze B2.",
+    lifespan=lifespan,
 )
 app.add_middleware(
     CORSMiddleware,
@@ -69,6 +83,10 @@ _workspace_context: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 _workspace_store_lock = threading.Lock()
 _receipt_lock_guard = threading.Lock()
 _receipt_locks: dict[str, threading.Lock] = {}
+_savings_cache_lock = threading.Lock()
+_savings_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
+_savings_refreshing: set[tuple[str, int]] = set()
+_SAVINGS_REFRESH_SECONDS = 60.0
 _jobs = ThreadPoolExecutor(max_workers=2, thread_name_prefix="recall-generation")
 _job_slots = threading.BoundedSemaphore(config.RECALL_MAX_ACTIVE_AND_QUEUED_JOBS)
 
@@ -239,8 +257,11 @@ def public(row: dict[str, Any]) -> dict[str, Any]:
 def event(kind: str, *, gen_id: str | None = None, actor: str | None = None, **extra: Any) -> bool:
     try:
         store().record_event({"event_id": f"evt_{uuid.uuid4().hex[:12]}", "created": now(), "kind": kind, "gen_id": gen_id, "actor": actor, **extra})
+        _apply_savings_event(kind, gen_id, extra)
         return True
     except Exception as exc:
+        if kind in {"generate", "capture", "fork"}:
+            _apply_savings_event(kind, gen_id, extra)
         logger.warning("event_write_failed kind=%s error_type=%s", kind, type(exc).__name__)
         return False
 
@@ -695,10 +716,18 @@ def approve(gen_id: str, request: Request) -> dict[str, Any]:
     return public(row)
 
 
-@app.get("/api/v1/savings")
-@app.get("/api/savings")
-def savings() -> dict[str, Any]:
-    rows, events = store().generations(), store().events()
+def _savings_key(active_store: RecallStore) -> tuple[str, int]:
+    return (_workspace_context.get() or "root", id(active_store))
+
+
+def _copy_savings(metrics: dict[str, Any]) -> dict[str, Any]:
+    copied = dict(metrics)
+    copied["savings_by_asset"] = dict(metrics.get("savings_by_asset", {}))
+    return copied
+
+
+def _calculate_savings(active_store: RecallStore) -> dict[str, Any]:
+    rows, events = active_store.generations(), active_store.events()
     priced_rows = [row for row in rows if row.get("cost_usd") is not None]
     reproductions = [item for item in events if item.get("kind") == "reproduce"]
     priced_reproductions = [item for item in reproductions if item.get("avoided_cost_usd") is not None]
@@ -717,6 +746,78 @@ def savings() -> dict[str, Any]:
         "unpriced_reproductions": len(reproductions) - len(priced_reproductions),
         "savings_by_asset": {key: round(value, 4) for key, value in by_asset.items()},
     }
+
+
+def _refresh_savings(active_store: RecallStore, key: tuple[str, int]) -> None:
+    try:
+        metrics = _calculate_savings(active_store)
+        with _savings_cache_lock:
+            _savings_cache[key] = (time.monotonic(), metrics)
+    except Exception as exc:
+        logger.warning("savings_refresh_failed error_type=%s", type(exc).__name__)
+    finally:
+        with _savings_cache_lock:
+            _savings_refreshing.discard(key)
+
+
+def _savings_snapshot(*, force: bool = False) -> dict[str, Any]:
+    active_store = store()
+    key = _savings_key(active_store)
+    current = time.monotonic()
+    with _savings_cache_lock:
+        cached = _savings_cache.get(key)
+        if cached and not force:
+            if current - cached[0] >= _SAVINGS_REFRESH_SECONDS and key not in _savings_refreshing:
+                _savings_refreshing.add(key)
+                threading.Thread(target=_refresh_savings, args=(active_store, key), daemon=True, name="recall-savings-refresh").start()
+            return _copy_savings(cached[1])
+        _savings_refreshing.add(key)
+    try:
+        metrics = _calculate_savings(active_store)
+        with _savings_cache_lock:
+            _savings_cache[key] = (time.monotonic(), metrics)
+        return _copy_savings(metrics)
+    finally:
+        with _savings_cache_lock:
+            _savings_refreshing.discard(key)
+
+
+def _apply_savings_event(kind: str, gen_id: str | None, extra: dict[str, Any]) -> None:
+    if kind not in {"generate", "capture", "fork", "reproduce"}:
+        return
+    active_store = store()
+    key = _savings_key(active_store)
+    with _savings_cache_lock:
+        cached = _savings_cache.get(key)
+        if not cached:
+            return
+        metrics = _copy_savings(cached[1])
+        if kind in {"generate", "capture", "fork"}:
+            metrics["count_generated"] += 1
+            cost = extra.get("cost_usd")
+            if cost is None:
+                metrics["unpriced_generations"] += 1
+            else:
+                metrics["total_spent"] = round(metrics["total_spent"] + float(cost), 4)
+        else:
+            metrics["count_reproduced"] += 1
+            avoided = extra.get("avoided_cost_usd")
+            if avoided is None:
+                metrics["unpriced_reproductions"] += 1
+            else:
+                metrics["total_saved"] = round(metrics["total_saved"] + float(avoided), 4)
+                asset_id = gen_id or "unknown"
+                by_asset = metrics["savings_by_asset"]
+                by_asset[asset_id] = round(by_asset.get(asset_id, 0.0) + float(avoided), 4)
+        metrics["savings_multiple"] = round(metrics["total_saved"] / metrics["total_spent"], 2) if metrics["total_spent"] else None
+        _savings_cache[key] = (time.monotonic(), metrics)
+
+
+
+@app.get("/api/v1/savings")
+@app.get("/api/savings")
+def savings() -> dict[str, Any]:
+    return _savings_snapshot()
 
 
 @app.get("/api/v1/integration")
