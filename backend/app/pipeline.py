@@ -107,7 +107,8 @@ class RecallPipeline:
                 summary=manifest_summary(manifest,parent_run_id)
                 summary["attempt"] = attempt
                 summary["fallback_models"] = config.RECALL_FALLBACK_MODELS
-                for step in getattr(getattr(result,"run",None),"steps",[]) or []:
+                steps = getattr(getattr(result,"run",None),"steps",[]) or []
+                for step in steps:
                     for asset in getattr(step,"assets",[]) or []:
                         if getattr(asset,"url",None):
                             reported=getattr(step,"cost_usd",None) or getattr(step,"cost",None)
@@ -115,7 +116,8 @@ class RecallPipeline:
                             summary["price_source"]="provider" if reported is not None else ("configured_model_price" if config.RECALL_MODEL_COST_USD else "unknown")
                             summary["native_asset_url"]=asset.url
                             return self._read_asset(asset.url),summary,raw
-                errors.append(f"attempt {attempt}: provider returned no image asset")
+                diagnostics = [f"{getattr(step, 'status', 'unknown')}: {str(getattr(step, 'error', '') or getattr(step, 'error_code', '') or 'no asset')[:180]}" for step in steps]
+                errors.append(f"attempt {attempt}: provider returned no image asset" + (" (" + " | ".join(diagnostics) + ")" if diagnostics else ""))
             except Exception as exc:
                 errors.append(f"attempt {attempt}: {str(exc)[:180]}")
         return None,{"error":" | ".join(errors),"attempts":config.RECALL_GENERATION_RETRIES},{}
