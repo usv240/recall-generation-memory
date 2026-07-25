@@ -406,6 +406,12 @@ def object_file(key: str) -> Response:
         raise HTTPException(404, "object not found")
 
 
+@app.get("/gen/{gen_id}", response_class=HTMLResponse)
+def certificate_page(gen_id: str) -> str:
+    if not store().generation(gen_id):
+        raise HTTPException(404, "generation not found")
+    return (FRONTEND / "certificate.html").read_text(encoding="utf-8")
+
 @app.get("/", response_class=HTMLResponse)
 def landing_page() -> str:
     return (FRONTEND / "index.html").read_text(encoding="utf-8")
