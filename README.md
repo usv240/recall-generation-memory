@@ -35,6 +35,10 @@ recall-relay doctor
 
 - [Recall Relay](docs/RELAY.md) ? local Gemini relay and external capture API; provider keys never enter Recall.
 
+## Native Genblaze storage
+
+Recall verifies the official native `ObjectStorageSink` path against B2 on the current Genblaze package set; direct B2 persistence remains defense in depth.
+
 ## Differentiated safety
 
 - [Recall Ledger + Intent Firewall](docs/RECALL_LEDGER.md) ? a tamper-evident record of avoided generation and policy-aware reuse that blocks similar-but-wrong assets.

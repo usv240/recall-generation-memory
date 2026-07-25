@@ -3,12 +3,16 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import sys
+from pathlib import Path
 from fastapi.testclient import TestClient
 
 from backend.app import main
 from backend.app.reuse import rank
 from backend.app.storage import RecallStore
 from backend.app.config import config
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sdk" / "python"))
+from recall_relay import RecallRelay
 
 
 class MemoryStore:
@@ -147,3 +151,15 @@ def test_workspace_store_is_prefix_isolated_locally(monkeypatch, tmp_path):
     assert alpha.get("recall/index/runs/only-alpha.json") == b"alpha"
     assert "recall/index/runs/only-alpha.json" in alpha.list_keys("recall/index/runs")
     assert "recall/index/runs/only-alpha.json" not in beta.list_keys("recall/index/runs")
+
+
+def test_openai_relay_does_not_call_provider_on_reuse(monkeypatch):
+    relay = RecallRelay("https://recall.example", openai_key="local-only-key", workspace_id="ws-example", workspace_key="workspace-secret")
+    calls = []
+    def fake_post(url, body, headers=None):
+        calls.append(url)
+        return {"recommendation":"reuse", "matches":[{"gen_id":"gen_existing","asset_url":"https://asset.example"}], "receipt":{"receipt_id":"rr_existing"}}
+    monkeypatch.setattr(relay, "_post", fake_post)
+    result = relay.generate_openai("same creative request")
+    assert result.status == "reused"
+    assert calls == ["https://recall.example/api/v1/reuse-check"]

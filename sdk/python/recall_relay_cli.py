@@ -13,25 +13,30 @@ def _intent(values: list[str]) -> dict[str, str]:
     return out
 
 def _relay() -> RecallRelay:
-    return RecallRelay(os.environ.get("RECALL_URL", ""), gemini_key=os.environ.get("GEMINI_API_KEY"), workspace_id=os.environ.get("RECALL_WORKSPACE_ID"), workspace_key=os.environ.get("RECALL_WORKSPACE_KEY"))
+    return RecallRelay(os.environ.get("RECALL_URL", ""), gemini_key=os.environ.get("GEMINI_API_KEY"), openai_key=os.environ.get("OPENAI_API_KEY"), workspace_id=os.environ.get("RECALL_WORKSPACE_ID"), workspace_key=os.environ.get("RECALL_WORKSPACE_KEY"))
 
 def main() -> None:
     parser=argparse.ArgumentParser(prog="recall-relay", description="Use your Gemini key locally and keep a private Recall memory.")
     commands=parser.add_subparsers(dest="command", required=True)
     commands.add_parser("doctor", help="Check configuration without printing secrets.")
-    generate=commands.add_parser("gemini", help="Check Recall, then call Gemini only on a safe miss.")
-    generate.add_argument("prompt")
-    generate.add_argument("--tag", action="append", default=[])
-    generate.add_argument("--intent", action="append", default=[], metavar="KEY=VALUE")
-    generate.add_argument("--model", default="gemini-3.1-flash-image")
-    generate.add_argument("--output", default="recall-output.png")
+    for name, description, default_model in [("gemini", "Check Recall, then call Gemini only on a safe miss.", "gemini-3.1-flash-image"), ("openai", "Check Recall, then call OpenAI only on a safe miss.", "gpt-image-1")]:
+        generate=commands.add_parser(name, help=description)
+        generate.add_argument("prompt")
+        generate.add_argument("--tag", action="append", default=[])
+        generate.add_argument("--intent", action="append", default=[], metavar="KEY=VALUE")
+        generate.add_argument("--model", default=default_model)
+        generate.add_argument("--output", default="recall-output.png")
+        if name == "openai": generate.add_argument("--size")
     args=parser.parse_args()
     if args.command == "doctor":
-        needed=["RECALL_URL", "RECALL_WORKSPACE_ID", "RECALL_WORKSPACE_KEY", "GEMINI_API_KEY"]
+        needed=["RECALL_URL", "RECALL_WORKSPACE_ID", "RECALL_WORKSPACE_KEY"]
+        providers=[name for name in ("GEMINI_API_KEY", "OPENAI_API_KEY") if os.environ.get(name)]
+        if not providers: needed.append("GEMINI_API_KEY or OPENAI_API_KEY")
         missing=[name for name in needed if not os.environ.get(name)]
         print(json.dumps({"ready":not missing,"missing":missing,"note":"Secrets are intentionally not displayed."}))
         raise SystemExit(1 if missing else 0)
-    result=_relay().generate_gemini(args.prompt, model=args.model, tags=args.tag, intent=_intent(args.intent))
+    relay=_relay()
+    result=relay.generate_gemini(args.prompt, model=args.model, tags=args.tag, intent=_intent(args.intent)) if args.command == "gemini" else relay.generate_openai(args.prompt, model=args.model, tags=args.tag, intent=_intent(args.intent), size=getattr(args, "size", None))
     if result.media: Path(args.output).write_bytes(result.media)
     print(json.dumps({"status":result.status,"generation_id":result.generation.get("gen_id"),"asset_url":result.generation.get("asset_url"),"receipt_id":result.receipt.get("receipt_id"),"output":args.output if result.media else None}))
 

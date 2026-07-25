@@ -32,6 +32,14 @@ recall-relay gemini "Editorial cobalt glass product image" --tag launch --intent
 
 The CLI never prints credentials. `gemini` calls Google only after Recall?s private workspace returns a safe miss.
 
+## OpenAI image generation
+
+Set `OPENAI_API_KEY` locally and run:
+
+```bash
+recall-relay openai "Editorial cobalt glass product image" --model gpt-image-1 --output hero.png
+```
+
 ## Publish to PyPI
 
 The repository is ready for PyPI, but publishing needs an account/token owned by the project maintainer:
