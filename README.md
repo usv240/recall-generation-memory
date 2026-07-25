@@ -11,7 +11,9 @@
 
 The hosted demo allows a small, IP-scoped number of paid generations per hour. Exact B2 retrieval is free and unmetered. Integrations can use `X-Recall-Key` or `Authorization: Bearer <key>` after configuring `RECALL_API_KEYS`.
 
-## Why this is more than a media library
+## Why Recall is not a folder or DAM
+
+A folder stores bytes after someone remembers to save them. A digital asset manager organizes files after they exist. Recall sits before the provider call: its provider-neutral Relay and Reuse Gate search shared history across tools, models, prompts, intent, and lineage before the team pays again. It then keeps the exact original with the recipe, integrity proof, approval context, reuse decision, and avoided cost.
 
 1. **Reuse Gate** checks the existing library before sending a paid request.
 2. **Exact retrieval** serves the original B2 bytes; it does not gamble on another model run.
@@ -19,6 +21,8 @@ The hosted demo allows a small, IP-scoped number of paid generations per hour. E
 4. **Proof records** verify the stored SHA-256 against the actual B2 asset and expose the provenance sidecar.
 5. **Savings accounting** records the real avoided replacement cost every time an asset is retrieved.
 6. **Approval and retention** copies a final asset into a B2 Object Lock retention path.
+
+**Exact retrieval and recipe replay are different by design.** Retrieve returns the original verified B2 bytes with no new model call. Replay invokes the model again as a paid, best-effort lineage child and may produce a different result when the provider is nondeterministic.
 
 ## Install the Relay
 

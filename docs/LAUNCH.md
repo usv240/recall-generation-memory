@@ -12,24 +12,32 @@
 
 ## Three-minute demo sequence
 
-1. Show a prior asset and its `$0.067` cost.
-2. Type a semantically related need; let Reuse Gate pause the paid action.
-3. Retrieve the exact B2 original and show the avoided cost increase.
-4. Open Proof: SHA-256 matches, manifest is in B2, and lineage is visible.
-5. Fork one controlled variation and show its parent link.
-6. Approve the final and explain B2 Object Lock retention.
-7. Close on the savings dashboard and architecture: B2 holds the economic memory, Genblaze holds the reproducible route.
+1. Show a prior asset and its real recorded model cost.
+2. Explain why this is not a folder: Recall checks shared cross-tool memory before a provider call and preserves the request, exact bytes, recipe, intent, lineage, integrity, and economics.
+3. Open Proof and show that SHA-256 matches the B2 object and the Genblaze manifest is present.
+4. State the honest split: exact Retrieve returns stored B2 bytes; paid recipe replay may differ.
+5. Type a semantically related need and let Reuse Gate pause the paid action.
+6. Hold on the live comparison between generating again and `$0.00` new model cost for exact retrieval.
+7. Retrieve the original and show Saved by Recall and Paid Calls Avoided increase.
+8. Show one existing controlled fork and its parent link.
+9. Show the approved Object Lock state, then close on: Recall proves what the team did not need to generate.
 
 ## Devpost submission
 
 - [ ] Public working URL
-- [ ] Public GitHub repository containing this source and README
+- [ ] Public GitHub repository containing this source and README, or if private, access granted to the `b2genblaze` testing account
 - [ ] Explicit provider/model list: Google Gemini `gemini-3.1-flash-image`; Gemini embeddings if enabled
 - [ ] Explicit B2 explanation: assets, manifests, catalog, events, Object Lock copies
 - [ ] Explicit Genblaze explanation: Pipeline, custom provider, fallback models, canonical manifests, lineage
 - [ ] Public video below three minutes with live functionality on-screen
+- [ ] Multiple-submission differentiation stated clearly: Recall is pre-generation spend control and cross-tool memory; Trueprint is post-creation authenticity analysis
 - [ ] Optional: submit the documented ObjectStorageSink/B2 reproduction as constructive Genblaze feedback
 
+## Rules-specific access check
+
+- The Recall and Trueprint submissions must remain unique and substantially different under Rules line 280. Use the differentiation sentence above in the Devpost copy and demo narration.
+- The current Recall repository is public. If that changes, grant `b2genblaze` access before submission.
+- Confirm the public app remains available free of charge through the judging period and that the demo quota allows the complete judge test flow.
 ## Honest limitations to state
 
 - Retrieval is bit-exact because it serves the stored B2 object. A provider replay is a new paid model run and may not be bit-exact for nondeterministic providers.

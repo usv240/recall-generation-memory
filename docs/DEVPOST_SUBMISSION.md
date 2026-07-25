@@ -18,12 +18,17 @@ https://github.com/usv240/recall-generation-memory
 
 ## Short description
 
-Recall is a reusable generation memory for creative teams. It archives every AI-generated asset, its Genblaze provenance recipe, lineage, integrity hash, and cost on Backblaze B2. Before a team pays to generate again, Recall finds the original or a semantic match, retrieves the exact B2 bytes for free, and records the avoided generation cost.
+Recall is a cross-tool generation memory and spend-control layer for creative teams. Before any connected model runs, Reuse Gate checks private shared history. Recall can return the exact B2 original with no new model call, or preserve a deliberate new run with its Genblaze recipe, lineage, integrity hash, intent, and cost.
 
 ## Inspiration
 
 Generative-media teams repeatedly pay to recreate work they already made because the original asset, prompt, model settings, and version history are scattered across tools. A regenerated image is often different from the one a team approved. We wanted a better default: preserve what was paid for, retrieve it exactly, and only generate when the need is genuinely new.
 
+## Why this is not just saved files or a DAM
+
+A folder only helps after someone remembers where a file was saved. A DAM makes existing files searchable. Neither normally intercepts a generation request before the provider charges the team, nor connects the approved bytes to provider settings, prompt intent, lineage, integrity, reuse decisions, and avoided model cost.
+
+Recall does. Its provider-neutral Relay can sit in front of any model callback, and its Reuse Gate checks exact, lexical, semantic, and policy-safe matches before generation. A retrieval returns the original B2 bytes. A fork creates a deliberate lineage child. A recipe replay is honestly labeled as a new paid, best-effort run that may differ.
 ## What it does
 
 Recall turns each generation into a durable, inspectable B2 record:
@@ -54,6 +59,9 @@ Google Gemini embeddings power semantic recall. They remain an internal B2 catal
 - Genblaze SDK for orchestration and provenance
 - Backblaze B2 for durable storage and Object Lock
 
+## Substantially different from Trueprint
+
+Recall and Trueprint solve different problems at different points in the media lifecycle. Recall is a pre-generation spend-control and cross-tool memory product: it prevents redundant provider calls, retrieves approved originals, and measures reuse economics. Trueprint is a post-creation authenticity product: it analyzes whether media and its claims can be trusted. Recall optimizes whether a team should generate; Trueprint evaluates what already exists. They have different users, core workflows, product outcomes, demos, and success metrics even though both use B2 and Genblaze infrastructure.
 ## Challenges we ran into
 
 The native Genblaze ObjectStorageSink path returned a B2 401 after a provider successfully produced a local-file asset, while direct B2 persistence with the same bucket and credentials worked. Recall handles this safely by preserving the exact bytes and raw Genblaze manifest directly in B2, and includes a documented reproduction for Genblaze feedback. We also had to separate exact retrieval from model replay: exact B2 retrieval is the reliable, free default; a new model run is honestly treated as a paid variation.
@@ -75,12 +83,15 @@ Production-minded generative media needs more than a provider call. The valuable
 
 Team workspaces and scoped API keys for customer integrations; larger semantic indexes; multimodal video/audio workflows; and a fully repaired native ObjectStorageSink path once the provider/local-file B2 issue is resolved.
 
+## Repository access
+
+The submitted repository is public. If it is changed to private before judging, grant the Backblaze testing account `b2genblaze` access before submitting, as required by the rules.
 ## Judge test instructions
 
 1. Open the workspace URL.
 2. Inspect a library asset and click **Proof**.
 3. Verify its B2 hash and manifest receipt.
-4. Click **Retrieve** to retrieve the exact original and add avoided cost.
+4. Run a related prompt through Reuse Gate. Show the live comparison between another model call and `$0.00` model cost for exact B2 retrieval, then retrieve the original and show the avoided-cost increase.
 5. Click **Fork**, make a controlled prompt edit, and create a lineage-linked variation.
 6. Click **Approve and lock** to demonstrate the Object Lock workflow.
-7. Enter a related prompt to see the Semantic Reuse Gate before generating.
+7. Finish on Saved by Recall and Paid Calls Avoided to show that the retrieval was economically recorded.

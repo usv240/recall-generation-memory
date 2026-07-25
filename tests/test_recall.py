@@ -419,12 +419,25 @@ def test_relay_rejects_oversized_media_before_capture(monkeypatch):
 
 
 def test_frontend_has_no_dead_end_reuse_gate_or_encoding_regression():
-    source = (Path(__file__).resolve().parents[1] / "frontend" / "app.html").read_text(encoding="utf-8")
+    frontend = Path(__file__).resolve().parents[1] / "frontend"
+    source = (frontend / "app.html").read_text(encoding="utf-8")
     assert "Generate a new asset" in source
     assert "scheduleLoad()" in source
     assert 'loading="lazy"' in source
     assert "mediaPreview" in source and "<video" in source and "<audio" in source
+    assert "GENERATE AGAIN" in source and "$0.00 model cost" in source
+    assert "Retrieve exact original" in source and "Paid recipe replay" in source
+    landing = (frontend / "index.html").read_text(encoding="utf-8")
+    assert "A folder waits until after you remember" in landing
+    assert "fetch('/api/v1/savings')" in landing
     assert not any(marker in source for marker in ("Ã", "â", "Â", "�"))
+    for page in frontend.glob("*.html"):
+        page_source = page.read_text(encoding="utf-8")
+        assert 0x2014 not in map(ord, page_source)
+        assert not any(
+            0x1F300 <= ord(char) <= 0x1FAFF or 0x2600 <= ord(char) <= 0x27BF
+            for char in page_source
+        )
 
 def test_exact_reuse_match_skips_external_embedding_call(monkeypatch):
     import backend.app.reuse as reuse_module
