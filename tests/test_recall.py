@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
@@ -463,6 +464,21 @@ def test_frontend_has_no_dead_end_reuse_gate_or_encoding_regression():
     assert "A folder waits until after you remember" in landing
     assert "fetch('/api/v1/savings')" in landing
     assert "Loading" not in landing and "{{RECALL_SAVINGS_MULTIPLE}}" in landing
+    assert "The whole idea in one minute" in landing
+    assert all(label in landing for label in ("WHAT", "HOW", "WHY"))
+    assert "function installHelp" in landing and "data-help=" in landing
+    assert "Plain-English guide for first-time users" in source
+    assert "function installHelp" in source and "data-tip=" in source
+    action_buttons = re.findall(r'<button class="action[^>]*>', source)
+    assert len(action_buttons) >= 14
+    assert all("data-help=" in button for button in action_buttons)
+    certificate = (frontend / "certificate.html").read_text(encoding="utf-8")
+    assert "This page explains which file Recall stored" in certificate
+    assert "What is a B2 asset hash?" in certificate and "What is lineage?" in certificate
+    for page_source in (source, landing, certificate):
+        buttons = re.findall(r"<button\b[^>]*>", page_source)
+        assert buttons
+        assert all("info-button" in button or "data-help=" in button for button in buttons)
     assert not any(marker in source for marker in ("Ã", "â", "Â", "�"))
     for page in frontend.glob("*.html"):
         page_source = page.read_text(encoding="utf-8")
