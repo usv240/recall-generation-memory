@@ -291,6 +291,26 @@ def verify(gen_id: str) -> dict[str, Any]:
     }
 
 
+@app.get("/api/v1/gen/{gen_id}/evidence")
+def evidence_bundle(gen_id: str) -> dict[str, Any]:
+    """Portable, public-safe evidence for an archived generation."""
+    row = store().generation(gen_id)
+    if not row:
+        raise HTTPException(404, "generation not found")
+    return {
+        "schema": "recall-evidence/v1",
+        "generated_at": now(),
+        "generation": public(row),
+        "integrity": verify(gen_id),
+        "lineage": lineage(gen_id),
+        "verification_instructions": [
+            "Fetch the asset_url and compute SHA-256; compare it with integrity.expected_sha256.",
+            "Fetch raw_manifest_url and run genblaze.parse_manifest(...).verify().",
+            "Use the lineage record to inspect parent/child provenance.",
+        ],
+        "note": "This bundle intentionally omits service credentials and semantic embedding vectors.",
+    }
+
 @app.post("/api/v1/gen/{gen_id}/rerun", status_code=status.HTTP_202_ACCEPTED)
 def rerun_recipe(gen_id: str, request: Request) -> dict[str, Any]:
     original = store().generation(gen_id)
