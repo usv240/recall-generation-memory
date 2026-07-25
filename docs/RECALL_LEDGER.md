@@ -2,7 +2,7 @@
 
 ## The decision record
 
-Recall creates a `recall-reuse-receipt/v1` for every reuse assessment before a paid generation is permitted. The receipt is written to `recall/ledger/` in B2 with the configured Object Lock retention policy. It contains a salted HMAC commitment to the requested prompt?not the prompt?plus the candidate asset hash, match evidence, requested intent, policy result, avoided cost, and the previous receipt hash.
+Recall creates a `recall-reuse-receipt/v1` for every reuse assessment before a paid generation is permitted. The receipt is written to `recall/ledger/` in B2 with the configured Object Lock retention policy. It contains a salted HMAC commitment to the requested prompt, not the prompt itself, plus the candidate asset hash, match evidence, requested intent, policy result, avoided cost, and the previous receipt hash.
 
 `GET /api/v1/receipts/{receipt_id}/verify` recomputes the canonical receipt hash and validates its link to the previous receipt. This proves that a particular policy decision has not changed after being written. It does not claim a third-party identity signature or full C2PA compliance.
 

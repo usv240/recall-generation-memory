@@ -4,14 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "recall-relay"
-version = "0.1.0"
+version = "0.1.1"
 description = "Bring-your-own-key generation relay and private memory client for Recall"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
 authors = [{name = "Recall contributors"}]
 keywords = ["generative-media", "gemini", "backblaze", "b2", "genblaze", "semantic-cache"]
-classifiers = ["Development Status :: 3 - Alpha", "Intended Audience :: Developers", "License :: OSI Approved :: MIT License", "Programming Language :: Python :: 3", "Programming Language :: Python :: 3 :: Only"]
+classifiers = ["Development Status :: 4 - Beta", "Intended Audience :: Developers", "Programming Language :: Python :: 3", "Programming Language :: Python :: 3 :: Only"]
+
+[project.urls]
+Homepage = "https://recall-production-production.up.railway.app/"
+Repository = "https://github.com/usv240/recall-generation-memory"
+Documentation = "https://github.com/usv240/recall-generation-memory/tree/main/sdk/python"
 
 [project.scripts]
 recall-relay = "recall_relay_cli:main"

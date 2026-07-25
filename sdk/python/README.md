@@ -2,10 +2,10 @@
 
 `recall-relay` is a small, dependency-free Python client that checks a private Recall workspace before calling Gemini image generation. On a safe reuse match it returns the stored asset; on a miss it calls Gemini with the key in your local process, then captures the resulting bytes in Recall.
 
-## Install from GitHub
+## Install
 
 ```bash
-pip install "git+https://github.com/usv240/recall-generation-memory.git#subdirectory=sdk/python"
+pip install recall-relay
 ```
 
 For local development:
@@ -30,7 +30,7 @@ recall-relay doctor
 recall-relay gemini "Editorial cobalt glass product image" --tag launch --intent brand=Recall --intent format=1:1 --output hero.png
 ```
 
-The CLI never prints credentials. `gemini` calls Google only after Recall?s private workspace returns a safe miss.
+The CLI never prints credentials. `gemini` calls Google only after Recall's private workspace returns a safe miss.
 
 ## OpenAI image generation
 

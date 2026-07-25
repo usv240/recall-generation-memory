@@ -1,6 +1,6 @@
 # Genblaze ObjectStorageSink follow-up
 
-## Current status ? 2026-07-25
+## Current status - 2026-07-25
 
 The current package set (`genblaze 0.4.4`, `genblaze-core 0.3.7`, `genblaze-s3 0.3.6`) successfully uploaded a local `Asset` to the live Recall B2 bucket through `ObjectStorageSink.put_asset(...)`. This confirms the direct sink/backend credential path is valid.
 

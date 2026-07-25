@@ -67,7 +67,7 @@ class RecallGoogleImageProvider:
     """A real Genblaze provider (SyncProvider) for Google Gemini image-to-image.
 
     Lets Trueprint run its second, independent colorization through Genblaze on a
-    *different provider family* (Google) than gpt-image (OpenAI/GMI) Ã¢â‚¬â€ so the
+    *different provider family* (Google) than gpt-image (OpenAI/GMI), so the
     confidence map is genuine multi-provider corroboration. Implemented lazily as a
     subclass so importing this module never requires genblaze at load time.
     """
@@ -100,7 +100,7 @@ class RecallGoogleImageProvider:
                 body = {"contents": [{"parts": parts}],
                     "generationConfig": {"responseModalities": ["IMAGE"]}}
                 # "Thinking" image models occasionally return a thought-only response
-                # with no image Ã¢â‚¬â€ retry a few times before giving up.
+                # with no image, retry a few times before giving up.
                 out, last = None, ""
                 for _ in range(3):
                     r = httpx.post(ep, json=body, timeout=self._timeout)
