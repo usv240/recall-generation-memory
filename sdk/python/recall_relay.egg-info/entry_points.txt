@@ -1,2 +1,0 @@
-[console_scripts]
-recall-relay = recall_relay_cli:main

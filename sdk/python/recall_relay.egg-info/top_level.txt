@@ -1,2 +1,0 @@
-recall_relay
-recall_relay_cli

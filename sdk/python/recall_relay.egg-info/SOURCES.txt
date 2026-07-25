@@ -1,9 +1,0 @@
-README.md
-pyproject.toml
-recall_relay.py
-recall_relay_cli.py
-recall_relay.egg-info/PKG-INFO
-recall_relay.egg-info/SOURCES.txt
-recall_relay.egg-info/dependency_links.txt
-recall_relay.egg-info/entry_points.txt
-recall_relay.egg-info/top_level.txt
