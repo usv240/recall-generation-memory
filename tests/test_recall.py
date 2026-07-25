@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from fastapi.testclient import TestClient
@@ -97,3 +98,20 @@ def test_intent_firewall_blocks_similar_but_wrong_brand_and_receipt_verifies():
     assert blocked.status_code == 200
     assert blocked.json()["recommendation"] == "generate"
     assert blocked.json()["blockers"][0]["field"] == "brand"
+
+
+def test_external_capture_deduplicates_and_is_honest_about_provenance(monkeypatch):
+    memory = MemoryStore(); main._store = memory
+    monkeypatch.setattr(main, "embed", lambda prompt: None)
+    client = TestClient(main.app)
+    payload = {"prompt":"outside workflow hero", "media_base64":base64.b64encode(b"external media bytes").decode(), "media_type":"image/png", "provider":"bring-your-own", "model":"model-x"}
+    first = client.post("/api/v1/capture", json=payload)
+    assert first.status_code == 200
+    assert first.json()["deduplicated"] is False
+    generation = first.json()["generation"]
+    assert generation["provenance_kind"] == "external_capture"
+    duplicate = client.post("/api/v1/capture", json=payload)
+    assert duplicate.status_code == 200
+    assert duplicate.json()["deduplicated"] is True
+    checked = client.get(f"/api/v1/gen/{generation['gen_id']}/verify").json()
+    assert checked["status"] == "externally_captured_asset_verified"

@@ -9,6 +9,7 @@ import httpx
 from .config import config
 from .storage import RecallStore, now
 from .semantic import embed
+from .media import image_dhash
 
 def _manifest_document(manifest: Any) -> dict[str, Any]:
     if manifest is None: return {}
@@ -52,6 +53,7 @@ class RecallPipeline:
         if output is None: raise RuntimeError("Live generation did not return an asset. Nothing was archived; check provider access or model support.")
         extension,content_type=self._image_format(output)
         asset=self.store.put(f"recall/assets/{gen_id}/output.{extension}",output,content_type); asset["content_type"]=content_type
+        media_fingerprint=image_dhash(output)
         raw_manifest, canonical_hash, manifest_verified = seal_manifest(raw_manifest, asset, content_type)
         if canonical_hash:
             summary["canonical_hash"] = canonical_hash
@@ -62,7 +64,7 @@ class RecallPipeline:
         cost=summary.get("cost_usd") if summary else None
         vector=embed(prompt)
         semantic={"model":config.GOOGLE_EMBEDDING_MODEL,"embedding":vector} if vector else None
-        row={"gen_id":gen_id,"created":recipe["created"],"modality":"image","prompt":prompt,"provider":config.RECALL_PROVIDER,"model":model,"params":params,"tags":tags,"genblaze":summary,"asset":asset,"manifest_key":manifest_key,"raw_manifest_key":raw_key,"cost_usd":float(cost) if cost is not None else None,"parent_gen_id":parent_id,"intent":intent or {},"locked":False,"approval":None,"semantic":semantic}
+        row={"gen_id":gen_id,"created":recipe["created"],"modality":"image","prompt":prompt,"provider":config.RECALL_PROVIDER,"model":model,"params":params,"tags":tags,"genblaze":summary,"asset":asset,"manifest_key":manifest_key,"raw_manifest_key":raw_key,"cost_usd":float(cost) if cost is not None else None,"parent_gen_id":parent_id,"intent":intent or {},"media_fingerprint":media_fingerprint,"locked":False,"approval":None,"semantic":semantic}
         self.store.save_generation(row); return row
     @staticmethod
     def _image_format(data:bytes)->tuple[str,str]:

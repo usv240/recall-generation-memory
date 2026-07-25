@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import datetime as dt
 import json
@@ -19,6 +21,8 @@ from .pipeline import RecallPipeline
 from .reuse import rank
 from .policy import POLICY_VERSION, clean_intent, decision
 from .ledger import create_receipt, verify_receipt
+from .semantic import embed
+from .media import image_dhash, sha256
 from .security import require_generation_access
 from .storage import RecallStore, now
 
@@ -83,6 +87,17 @@ class ReuseRequest(BaseModel):
 class ForkRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=1000)
     params: dict[str, Any] = Field(default_factory=dict)
+    intent: IntentProfile = Field(default_factory=IntentProfile)
+
+
+class CaptureRequest(BaseModel):
+    prompt: str = Field(min_length=3, max_length=1000)
+    media_base64: str = Field(min_length=4, max_length=28_000_000)
+    media_type: str = Field(default="image/png", max_length=120)
+    provider: str = Field(default="external", max_length=80)
+    model: str = Field(default="external", max_length=160)
+    params: dict[str, Any] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list, max_length=20)
     intent: IntentProfile = Field(default_factory=IntentProfile)
 
 
@@ -174,6 +189,41 @@ def reuse_check(request: ReuseRequest) -> dict[str, Any]:
         "receipt": {"receipt_id": receipt["receipt_id"], "receipt_hash": receipt["receipt_hash"], "b2_key": stored["b2_key"], "verify_url": f"/api/v1/receipts/{receipt['receipt_id']}/verify"},
         "note": "Near matches are suggestions; Recall never reuses an asset without an explicit user action.",
     }
+
+
+def archive_capture(payload: CaptureRequest, actor: str) -> tuple[dict[str, Any], bool]:
+    try:
+        media = base64.b64decode(payload.media_base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(422, "media_base64 must be valid base64") from exc
+    if len(media) > 18 * 1024 * 1024:
+        raise HTTPException(413, "captured media exceeds the 18 MB relay limit")
+    media_hash = sha256(media)
+    for existing in store().generations():
+        if existing.get("asset", {}).get("sha256") == media_hash:
+            event("capture_deduplicated", gen_id=existing["gen_id"], actor=actor, asset_sha256=media_hash)
+            return existing, True
+    suffix = {"image/png":"png", "image/jpeg":"jpg", "image/webp":"webp", "video/mp4":"mp4", "audio/mpeg":"mp3", "audio/wav":"wav"}.get(payload.media_type, "bin")
+    gen_id = f"cap_{uuid.uuid4().hex[:12]}"
+    asset = store().put(f"recall/assets/{gen_id}/output.{suffix}", media, payload.media_type)
+    asset["content_type"] = payload.media_type
+    created = now()
+    provenance = {"schema":"recall-external-capture/v1", "captured_at":created, "provider":payload.provider, "model":payload.model, "asset_sha256":media_hash, "note":"Captured after provider completion; this record is not represented as a Genblaze-generated manifest."}
+    raw_key = f"recall/captures/{gen_id}.json"; store().put(raw_key, json.dumps(provenance, indent=2).encode(), "application/json")
+    recipe = {"generation":gen_id, "created":created, "prompt":payload.prompt, "model":payload.model, "params":payload.params, "provider":payload.provider, "capture_provenance_key":raw_key}
+    manifest_key = f"recall/manifests/{gen_id}.json"; store().put(manifest_key, json.dumps(recipe, indent=2).encode(), "application/json")
+    vector=embed(payload.prompt)
+    row={"gen_id":gen_id,"created":created,"modality":payload.media_type.split("/",1)[0],"prompt":payload.prompt,"provider":payload.provider,"model":payload.model,"params":payload.params,"tags":payload.tags,"genblaze":{},"provenance_kind":"external_capture","asset":asset,"manifest_key":manifest_key,"raw_manifest_key":raw_key,"cost_usd":None,"parent_gen_id":None,"intent":clean_intent(payload.intent.model_dump()),"media_fingerprint":image_dhash(media),"locked":False,"approval":None,"semantic":{"model":config.GOOGLE_EMBEDDING_MODEL,"embedding":vector} if vector else None}
+    store().save_generation(row); event("capture", gen_id=gen_id, actor=actor, provider=payload.provider, model=payload.model, asset_sha256=media_hash)
+    return row, False
+
+
+@app.post("/api/v1/capture")
+def capture_completed_media(payload: CaptureRequest, request: Request) -> dict[str, Any]:
+    """Archive a completed BYO-provider result; it never invokes a model."""
+    actor = require_generation_access(request)
+    row, duplicate = archive_capture(payload, actor.label)
+    return {"generation":public(row), "deduplicated":duplicate, "message":"Existing asset reused without another B2 copy." if duplicate else "Captured provider output into Recall memory."}
 
 
 @app.post("/api/v1/jobs/generate", status_code=status.HTTP_202_ACCEPTED)
@@ -309,7 +359,8 @@ def verify(gen_id: str) -> dict[str, Any]:
         "manifest_verified": manifest_verified,
         "manifest_error": manifest_error,
         "canonical_manifest_hash": canonical_hash,
-        "status": "verified" if actual == expected and manifest_verified else "attention_required",
+        "status": "verified" if actual == expected and manifest_verified else ("externally_captured_asset_verified" if actual == expected and row.get("provenance_kind") == "external_capture" else "attention_required"),
+        "provenance_kind": row.get("provenance_kind", "genblaze"),
     }
 
 

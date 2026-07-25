@@ -20,6 +20,10 @@ The hosted demo allows a small, IP-scoped number of paid generations per hour. E
 5. **Savings accounting** records the real avoided replacement cost every time an asset is retrieved.
 6. **Approval and retention** copies a final asset into a B2 Object Lock retention path.
 
+## Use your own model
+
+- [Recall Relay](docs/RELAY.md) ? local Gemini relay and external capture API; provider keys never enter Recall.
+
 ## Differentiated safety
 
 - [Recall Ledger + Intent Firewall](docs/RECALL_LEDGER.md) ? a tamper-evident record of avoided generation and policy-aware reuse that blocks similar-but-wrong assets.
