@@ -2,6 +2,7 @@
 from __future__ import annotations
 import datetime as dt
 import hashlib
+import hmac
 import json
 import re
 from pathlib import Path
@@ -45,10 +46,14 @@ class RecallStore:
                     from genblaze import ObjectLockConfig
                     retain = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=lock_days)
                     kwargs["object_lock"] = ObjectLockConfig(retain_until=retain, mode="GOVERNANCE")
-                except Exception:
-                    pass
-            try: self._remote.put(key, data, **kwargs)
-            except TypeError: self._remote.put(key, data)
+                except Exception as exc:
+                    raise RuntimeError("Object Lock was requested but could not be configured") from exc
+            try:
+                self._remote.put(key, data, **kwargs)
+            except TypeError as exc:
+                if lock_days:
+                    raise RuntimeError("The storage backend rejected the Object Lock request") from exc
+                self._remote.put(key, data)
         else:
             target = self._local_path(key); target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data)
         return {"b2_key": self._logical_key(key), "sha256": sha256_hex(data), "bytes": len(data)}
@@ -65,15 +70,29 @@ class RecallStore:
         if self._remote:
             value = self._remote.presigned_get_url(key, expires_in=3600)
             return value if isinstance(value, str) else getattr(value, "url", str(value))
-        return f"/api/object/{key}"
+        expires = int(dt.datetime.now(dt.timezone.utc).timestamp()) + 3600
+        signature = hmac.new(config.RECALL_RECEIPT_SECRET.encode(), f"{key}:{expires}".encode(), hashlib.sha256).hexdigest()
+        return f"/api/object/{key}?expires={expires}&signature={signature}"
 
     def list_keys(self, prefix: str) -> list[str]:
         prefix = self._scoped_key(prefix)
         if self._remote:
-            page = self._remote.list(prefix, max_keys=1000); out=[]
-            for item in getattr(page, "entries", []) or []:
-                key = getattr(item, "key", None) or (item.get("key") if isinstance(item, dict) else None)
-                if key: out.append(self._logical_key(key))
+            out: list[str] = []
+            continuation_token: str | None = None
+            seen_tokens: set[str] = set()
+            while True:
+                page = self._remote.list(prefix, max_keys=1000, continuation_token=continuation_token)
+                for item in getattr(page, "entries", []) or []:
+                    key = getattr(item, "key", None) or (item.get("key") if isinstance(item, dict) else None)
+                    if key:
+                        out.append(self._logical_key(key))
+                next_token = getattr(page, "next_token", None)
+                if not next_token:
+                    break
+                if next_token in seen_tokens:
+                    raise RuntimeError("B2 listing returned a repeated continuation token")
+                seen_tokens.add(next_token)
+                continuation_token = next_token
             return out
         root=self._local_path(prefix)
         return [] if not root.exists() else [self._logical_key(p.relative_to(config.LOCAL_DATA_DIR).as_posix()) for p in root.rglob("*") if p.is_file()]

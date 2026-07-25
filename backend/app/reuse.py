@@ -14,6 +14,9 @@ def tokens(value: str) -> set[str]:
 
 def rank(prompt: str, tags: list[str], rows: list[dict[str, Any]], limit: int = 4) -> list[dict[str, Any]]:
     query, query_tokens = normalize(prompt), tokens(prompt)
+    exact_rows = [row for row in rows if query and normalize(row.get("prompt", "")) == query]
+    if exact_rows:
+        return [{"generation":row, "score":1.0, "match":"exact", "lexical_score":1.0, "semantic_score":None} for row in sorted(exact_rows, key=lambda item:item.get("created", ""), reverse=True)[:limit]]
     query_embedding = embed(prompt)
     tag_tokens = {normalize(tag) for tag in tags if normalize(tag)}
     scored: list[dict[str, Any]] = []

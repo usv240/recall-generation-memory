@@ -70,4 +70,4 @@ result = relay.generate_with(
 
 On `reused`, `call_your_provider` is never invoked; Relay performs the explicit free retrieval so Recall records the avoided cost. On `generated_and_captured`, Recall stores the output, byte hash, provider/model record, caller-reported cost, and reuse receipt for the next request.
 
-Capture requires a private workspace or `RECALL_API_KEY`; the public demo lane cannot be used for arbitrary uploads. `cost_usd` is optional, but savings remain unpriced until a trustworthy effective cost is supplied. Completed media is limited to 18 MB per capture in this release.
+Capture requires a private workspace or `RECALL_API_KEY`; the public demo lane cannot be used for arbitrary uploads. `cost_usd` is optional, but savings remain unpriced until a trustworthy effective cost is supplied. Completed media is limited to 18 MB per capture by default. `RecallRelay(..., max_media_bytes=...)` can lower the client-side ceiling, while the server remains authoritative. Existing output files are never silently overwritten; the CLI selects a numbered filename.

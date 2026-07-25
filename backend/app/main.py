@@ -6,18 +6,21 @@ import binascii
 import hashlib
 import datetime as dt
 import json
+import logging
 from concurrent.futures import ThreadPoolExecutor
 import mimetypes
+import re
 import secrets
 import hmac
+import threading
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from .config import config
 from .pipeline import RecallPipeline
@@ -26,11 +29,12 @@ from .policy import POLICY_VERSION, clean_intent, decision
 from .ledger import create_receipt, verify_receipt, prompt_commitment
 from .semantic import embed
 from .media import image_dhash, sha256
-from .security import require_generation_access, require_integration_access, require_private_api_key
+from .security import require_generation_access, require_integration_access, require_private_api_key, require_reuse_access
 from .storage import RecallStore, now
 
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = ROOT / "frontend"
+logger = logging.getLogger("recall")
 app = FastAPI(
     title="Recall API",
     version="1.0.0",
@@ -50,13 +54,23 @@ async def security_headers(request: Request, call_next: Any) -> Response:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' https: data:; media-src 'self' https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    if request.url.scheme == "https" or forwarded_proto == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 
 _store: RecallStore | None = None
 _workspace_stores: dict[str, RecallStore] = {}
 _workspace_context: contextvars.ContextVar[str | None] = contextvars.ContextVar("recall_workspace", default=None)
-_jobs = ThreadPoolExecutor(max_workers=2, thread_name_prefix='recall-generation')
+_workspace_store_lock = threading.Lock()
+_receipt_lock_guard = threading.Lock()
+_receipt_locks: dict[str, threading.Lock] = {}
+_jobs = ThreadPoolExecutor(max_workers=2, thread_name_prefix="recall-generation")
+_job_slots = threading.BoundedSemaphore(config.RECALL_MAX_ACTIVE_AND_QUEUED_JOBS)
 
 
 def root_store() -> RecallStore:
@@ -71,8 +85,18 @@ def store() -> RecallStore:
     if not workspace_id:
         return root_store()
     if workspace_id not in _workspace_stores:
-        _workspace_stores[workspace_id] = RecallStore(workspace_id)
+        with _workspace_store_lock:
+            if workspace_id not in _workspace_stores:
+                _workspace_stores[workspace_id] = RecallStore(workspace_id)
     return _workspace_stores[workspace_id]
+
+
+def receipt_chain_lock() -> threading.Lock:
+    scope = _workspace_context.get() or "root"
+    with _receipt_lock_guard:
+        if scope not in _receipt_locks:
+            _receipt_locks[scope] = threading.Lock()
+        return _receipt_locks[scope]
 
 
 @app.middleware("http")
@@ -80,8 +104,14 @@ async def workspace_scope(request: Request, call_next: Any) -> Response:
     workspace_id = request.headers.get("x-recall-workspace", "").strip()
     if not workspace_id:
         return await call_next(request)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,62}", workspace_id):
+        return JSONResponse(status_code=401, content={"detail": "Invalid Recall workspace credentials."})
     token = request.headers.get("x-recall-workspace-key", "").strip()
-    record = root_store().workspace(workspace_id)
+    try:
+        record = root_store().workspace(workspace_id)
+    except Exception as exc:
+        logger.warning("workspace_auth_store_unavailable error_type=%s", type(exc).__name__)
+        return JSONResponse(status_code=503, content={"detail": "Workspace authentication is temporarily unavailable."})
     expected = (record or {}).get("key_sha256", "")
     supplied = hashlib.sha256(token.encode()).hexdigest() if token else ""
     if not expected or not hmac.compare_digest(expected, supplied):
@@ -102,37 +132,87 @@ class IntentProfile(BaseModel):
     language: str | None = Field(default=None, max_length=80)
 
 
-class GenerateRequest(BaseModel):
-    prompt: str = Field(min_length=3, max_length=1000)
-    model: str | None = None
+ShortTag = Annotated[str, Field(min_length=1, max_length=80)]
+SUPPORTED_MEDIA_TYPES = {"image/png", "image/jpeg", "image/webp", "video/mp4", "audio/mpeg", "audio/wav"}
+MAX_CAPTURE_BASE64_CHARS = ((config.RECALL_MAX_CAPTURE_BYTES + 2) // 3) * 4
+SENSITIVE_PARAM_NAMES = {"api_key", "apikey", "authorization", "password", "secret", "token"}
+
+
+def media_signature_matches(media: bytes, media_type: str) -> bool:
+    checks = {
+        "image/png": lambda value: value.startswith(b"\x89PNG\r\n\x1a\n"),
+        "image/jpeg": lambda value: value.startswith(b"\xff\xd8\xff"),
+        "image/webp": lambda value: value.startswith(b"RIFF") and value[8:12] == b"WEBP",
+        "video/mp4": lambda value: len(value) >= 12 and value[4:8] == b"ftyp",
+        "audio/mpeg": lambda value: value.startswith(b"ID3") or (len(value) >= 2 and value[0] == 0xFF and value[1] & 0xE0 == 0xE0),
+        "audio/wav": lambda value: value.startswith(b"RIFF") and value[8:12] == b"WAVE",
+    }
+    return bool(media and checks[media_type](media))
+
+
+class ParameterizedRequest(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
-    tags: list[str] = Field(default_factory=list, max_length=20)
-    parent_gen_id: str | None = None
+
+    @field_validator("params")
+    @classmethod
+    def validate_safe_params(cls, value: dict[str, Any]) -> dict[str, Any]:
+        try:
+            encoded = json.dumps(value, allow_nan=False, separators=(",", ":")).encode()
+        except (TypeError, ValueError) as exc:
+            raise ValueError("params must contain finite JSON values") from exc
+        if len(encoded) > 32_768:
+            raise ValueError("params may not exceed 32 KB")
+
+        def inspect(item: Any) -> None:
+            if isinstance(item, dict):
+                for key, nested in item.items():
+                    normalized = str(key).casefold().replace("-", "_")
+                    if normalized in SENSITIVE_PARAM_NAMES or normalized.endswith("_secret") or normalized.endswith("_token"):
+                        raise ValueError(f"params must not contain credentials ({key})")
+                    inspect(nested)
+            elif isinstance(item, list):
+                for nested in item:
+                    inspect(nested)
+
+        inspect(value)
+        return value
+
+
+class GenerateRequest(ParameterizedRequest):
+    prompt: str = Field(min_length=3, max_length=1000)
+    model: str | None = Field(default=None, min_length=1, max_length=160)
+    tags: list[ShortTag] = Field(default_factory=list, max_length=20)
+    parent_gen_id: str | None = Field(default=None, max_length=80)
     intent: IntentProfile = Field(default_factory=IntentProfile)
 
 
 class ReuseRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=1000)
-    tags: list[str] = Field(default_factory=list, max_length=20)
+    tags: list[ShortTag] = Field(default_factory=list, max_length=20)
     intent: IntentProfile = Field(default_factory=IntentProfile)
 
 
-class ForkRequest(BaseModel):
+class ForkRequest(ParameterizedRequest):
     prompt: str = Field(min_length=3, max_length=1000)
-    params: dict[str, Any] = Field(default_factory=dict)
     intent: IntentProfile = Field(default_factory=IntentProfile)
 
 
-class CaptureRequest(BaseModel):
+class CaptureRequest(ParameterizedRequest):
     prompt: str = Field(min_length=3, max_length=1000)
-    media_base64: str = Field(min_length=4, max_length=28_000_000)
-    media_type: str = Field(default="image/png", max_length=120)
-    provider: str = Field(default="external", max_length=80)
-    model: str = Field(default="external", max_length=160)
-    params: dict[str, Any] = Field(default_factory=dict)
-    tags: list[str] = Field(default_factory=list, max_length=20)
+    media_base64: str = Field(min_length=4, max_length=MAX_CAPTURE_BASE64_CHARS)
+    media_type: str = Field(default="image/png", min_length=1, max_length=120)
+    provider: str = Field(default="external", min_length=1, max_length=80)
+    model: str = Field(default="external", min_length=1, max_length=160)
+    tags: list[ShortTag] = Field(default_factory=list, max_length=20)
     intent: IntentProfile = Field(default_factory=IntentProfile)
     cost_usd: float | None = Field(default=None, ge=0, le=100_000)
+
+    @field_validator("media_type")
+    @classmethod
+    def validate_media_type(cls, value: str) -> str:
+        if value.casefold() not in SUPPORTED_MEDIA_TYPES:
+            raise ValueError("unsupported media_type")
+        return value.casefold()
 
 
 class WorkspaceCreateRequest(BaseModel):
@@ -149,32 +229,64 @@ def public(row: dict[str, Any]) -> dict[str, Any]:
     data = dict(row)
     semantic = data.pop("semantic", None)
     data["semantic_indexed"] = bool(semantic and semantic.get("embedding"))
-    data["asset_url"] = store().url(row["asset"]["b2_key"])
-    data["manifest_url"] = store().url(row["manifest_key"])
+    asset_key = row.get("asset", {}).get("b2_key")
+    data["asset_url"] = store().url(asset_key) if asset_key else None
+    data["manifest_url"] = store().url(row["manifest_key"]) if row.get("manifest_key") else None
     data["raw_manifest_url"] = store().url(row["raw_manifest_key"]) if row.get("raw_manifest_key") else None
     return data
 
 
-def event(kind: str, *, gen_id: str | None = None, actor: str | None = None, **extra: Any) -> None:
-    store().record_event({"event_id": f"evt_{uuid.uuid4().hex[:12]}", "created": now(), "kind": kind, "gen_id": gen_id, "actor": actor, **extra})
-
-
-def _run_job(job_id: str, payload: GenerateRequest, actor: str) -> None:
-    job = store().job(job_id) or {"job_id": job_id}
-    job.update({"status": "running", "started": now()})
-    store().save_job(job)
+def event(kind: str, *, gen_id: str | None = None, actor: str | None = None, **extra: Any) -> bool:
     try:
-        row = RecallPipeline(store()).generate(prompt=payload.prompt, model=payload.model or config.RECALL_MODEL, params=payload.params, tags=payload.tags, parent_id=payload.parent_gen_id, intent=clean_intent(payload.intent.model_dump()))
-        event("generate", gen_id=row["gen_id"], actor=actor, model=row["model"], cost_usd=row.get("cost_usd"), job_id=job_id)
-        job.update({"status": "completed", "completed": now(), "generation_id": row["gen_id"]})
+        store().record_event({"event_id": f"evt_{uuid.uuid4().hex[:12]}", "created": now(), "kind": kind, "gen_id": gen_id, "actor": actor, **extra})
+        return True
     except Exception as exc:
-        event("generate_failed", actor=actor, job_id=job_id, reason=str(exc)[:180])
-        job.update({"status": "failed", "completed": now(), "error": str(exc)[:240]})
-    store().save_job(job)
+        logger.warning("event_write_failed kind=%s error_type=%s", kind, type(exc).__name__)
+        return False
+
+
+def submit_generation_job(job_id: str, payload: GenerateRequest, actor: str) -> None:
+    if not _job_slots.acquire(blocking=False):
+        queued = store().job(job_id)
+        if queued:
+            queued.update({"status":"rejected", "completed":now(), "error":"Generation queue was full; no provider call was made."})
+            store().save_job(queued)
+        raise HTTPException(503, "Generation queue is full. Retry after an active job completes.")
+    try:
+        _jobs.submit(_run_job, job_id, payload, actor, _workspace_context.get())
+    except Exception:
+        _job_slots.release()
+        raise
+
+
+def _run_job(job_id: str, payload: GenerateRequest, actor: str, workspace_id: str | None) -> None:
+    marker = _workspace_context.set(workspace_id)
+    try:
+        task_store = store()
+        job = task_store.job(job_id) or {"job_id": job_id}
+        job.update({"status": "running", "started": now()})
+        task_store.save_job(job)
+        try:
+            row = RecallPipeline(task_store).generate(prompt=payload.prompt, model=payload.model or config.RECALL_MODEL, params=payload.params, tags=payload.tags, parent_id=payload.parent_gen_id, intent=clean_intent(payload.intent.model_dump()))
+            event_recorded = event("generate", gen_id=row["gen_id"], actor=actor, model=row["model"], cost_usd=row.get("cost_usd"), job_id=job_id)
+            job.update({"status": "completed", "completed": now(), "generation_id": row["gen_id"]})
+            if not event_recorded:
+                job["warning"] = "Generation archived, but its analytics event could not be recorded."
+        except Exception as exc:
+            try:
+                event("generate_failed", actor=actor, job_id=job_id, reason=str(exc)[:180])
+            except Exception:
+                pass
+            job.update({"status": "failed", "completed": now(), "error": str(exc)[:240]})
+        task_store.save_job(job)
+    finally:
+        _workspace_context.reset(marker)
+        _job_slots.release()
 
 def recover_stale_jobs() -> int:
     cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=config.RECALL_JOB_STALE_MINUTES)
     recovered = 0
+    completed_events = {item.get("job_id"):item for item in store().events() if item.get("kind") == "generate" and item.get("job_id") and item.get("gen_id")}
     for job in store().jobs():
         if job.get("status") not in {"queued", "running"}:
             continue
@@ -184,7 +296,12 @@ def recover_stale_jobs() -> int:
         except Exception:
             continue
         if created < cutoff:
-            job.update({"status": "interrupted", "completed": now(), "error": "Worker did not finish before the recovery threshold. Retry safely from the stored request."})
+            completion = completed_events.get(job.get("job_id"))
+            generation_id = (completion or {}).get("gen_id")
+            if generation_id and store().generation(generation_id):
+                job.update({"status":"completed", "completed":now(), "generation_id":generation_id, "warning":"Recovered completion from the durable generation event after an interrupted status write."})
+            else:
+                job.update({"status": "interrupted", "completed": now(), "error": "Worker did not finish before the recovery threshold. Retry safely from the stored request."})
             store().save_job(job)
             recovered += 1
     return recovered
@@ -207,7 +324,9 @@ def health() -> dict[str, Any]:
         "generation_provider": config.has_generation_provider,
         "api_version": "v1",
         "public_demo_generation_limit_per_hour": config.RECALL_PUBLIC_GENERATIONS_PER_HOUR if config.RECALL_ALLOW_PUBLIC_GENERATE else 0,
+        "public_reuse_check_limit_per_hour": config.RECALL_PUBLIC_REUSE_CHECKS_PER_HOUR,
         "api_key_access": bool(config.RECALL_API_KEYS),
+        "limits": {"capture_bytes":config.RECALL_MAX_CAPTURE_BYTES, "generated_media_bytes":config.RECALL_MAX_GENERATED_MEDIA_BYTES, "active_and_queued_jobs":config.RECALL_MAX_ACTIVE_AND_QUEUED_JOBS},
     }
 
 
@@ -217,30 +336,38 @@ def ready() -> dict[str, Any]:
         raise HTTPException(503, "B2 archive is not configured")
     if not config.has_generation_provider:
         raise HTTPException(503, "Generation provider is not configured")
-    recovered_jobs = recover_stale_jobs()
     try:
+        recovered_jobs = recover_stale_jobs()
         store().list_keys("recall/index/")
     except Exception as exc:
         raise HTTPException(503, f"B2 archive check failed: {str(exc)[:120]}") from exc
-    return {"ok": True, "checks": {"b2": "reachable", "generation_provider": "configured"}, "recovered_interrupted_jobs": recovered_jobs}
+    warnings = []
+    receipt_secret_strong = config.RECALL_RECEIPT_SECRET != "local-development-only-change-me" and len(config.RECALL_RECEIPT_SECRET) >= 32
+    if not receipt_secret_strong:
+        warnings.append("Set a strong RECALL_RECEIPT_SECRET before handling private workspaces.")
+    if not config.RECALL_CORS_ORIGINS:
+        warnings.append("Set RECALL_CORS_ORIGINS to the production frontend origin.")
+    return {"ok": True, "checks": {"b2": "reachable", "generation_provider": "configured", "receipt_commitments":"configured" if receipt_secret_strong else "development-default"}, "warnings":warnings, "recovered_interrupted_jobs": recovered_jobs}
 
 
 @app.post("/api/v1/reuse-check")
 @app.post("/api/reuse-check")
-def reuse_check(request: ReuseRequest) -> dict[str, Any]:
-    matches = rank(request.prompt, request.tags, store().generations())
-    intent = clean_intent(request.intent.model_dump())
+def reuse_check(payload: ReuseRequest, request: Request) -> dict[str, Any]:
+    actor = require_reuse_access(request)
+    matches = rank(payload.prompt, payload.tags, store().generations())
+    intent = clean_intent(payload.intent.model_dump())
     recommendation, blockers, reason = decision(matches, intent)
     if matches:
         candidate_id = matches[0]["generation"].get("gen_id")
-        commitment = prompt_commitment(request.prompt)
+        commitment = prompt_commitment(payload.prompt)
         feedback = [item for item in store().feedback() if item.get("candidate_gen_id") == candidate_id and item.get("prompt_commitment_hmac_sha256") == commitment]
         if any(item.get("verdict") in {"too_similar", "never_suggest"} for item in feedback):
             recommendation, blockers, reason = "generate", [{"field":"user_feedback", "requested":"new generation", "candidate":candidate_id, "reason":"previously_rejected"}], "This exact request/candidate pair was previously rejected by the workspace."
-    receipts = store().receipts()
-    receipt = create_receipt(prompt=request.prompt, intent=intent, recommendation=recommendation, reason=reason, blockers=blockers, match=matches[0] if matches else None, previous_receipt_hash=receipts[-1]["receipt_hash"] if receipts else None)
-    stored = store().save_receipt(receipt)
-    event("reuse_assessed", gen_id=matches[0]["generation"].get("gen_id") if matches else None, recommendation=recommendation, receipt_id=receipt["receipt_id"], policy_version=POLICY_VERSION)
+    with receipt_chain_lock():
+        receipts = store().receipts()
+        receipt = create_receipt(prompt=payload.prompt, intent=intent, recommendation=recommendation, reason=reason, blockers=blockers, match=matches[0] if matches else None, previous_receipt_hash=receipts[-1]["receipt_hash"] if receipts else None)
+        stored = store().save_receipt(receipt)
+    event("reuse_assessed", gen_id=matches[0]["generation"].get("gen_id") if matches else None, actor=actor.label, recommendation=recommendation, receipt_id=receipt["receipt_id"], policy_version=POLICY_VERSION)
     return {
         "recommendation": recommendation,
         "matches": [{**public(item["generation"]), "similarity": item["score"], "match_type": item["match"]} for item in matches],
@@ -255,8 +382,10 @@ def archive_capture(payload: CaptureRequest, actor: str) -> tuple[dict[str, Any]
         media = base64.b64decode(payload.media_base64, validate=True)
     except (binascii.Error, ValueError) as exc:
         raise HTTPException(422, "media_base64 must be valid base64") from exc
-    if len(media) > 18 * 1024 * 1024:
-        raise HTTPException(413, "captured media exceeds the 18 MB relay limit")
+    if len(media) > config.RECALL_MAX_CAPTURE_BYTES:
+        raise HTTPException(413, f"captured media exceeds the {config.RECALL_MAX_CAPTURE_BYTES} byte relay limit")
+    if not media_signature_matches(media, payload.media_type):
+        raise HTTPException(415, "media bytes do not match the declared media_type")
     media_hash = sha256(media)
     for existing in store().generations():
         if existing.get("asset", {}).get("sha256") == media_hash:
@@ -291,7 +420,7 @@ def enqueue_generation(payload: GenerateRequest, request: Request) -> dict[str, 
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     job = {"job_id": job_id, "status": "queued", "created": now(), "prompt": payload.prompt, "parent_gen_id": payload.parent_gen_id, "actor": actor.label, "request": payload.model_dump()}
     store().save_job(job)
-    _jobs.submit(_run_job, job_id, payload, actor.label)
+    submit_generation_job(job_id, payload, actor.label)
     return {"job_id": job_id, "status": "queued", "poll": f"/api/v1/jobs/{job_id}"}
 
 
@@ -305,11 +434,14 @@ def retry_generation_job(job_id: str, request: Request) -> dict[str, Any]:
     if not previous.get("request"):
         raise HTTPException(409, "this legacy job has no recoverable request snapshot")
     actor = require_generation_access(request)
-    payload = GenerateRequest.model_validate(previous["request"])
+    try:
+        payload = GenerateRequest.model_validate(previous["request"])
+    except ValidationError as exc:
+        raise HTTPException(409, "stored job request is no longer valid; create a new generation request") from exc
     retry_id = f"job_{uuid.uuid4().hex[:12]}"
     retry = {"job_id": retry_id, "status": "queued", "created": now(), "prompt": payload.prompt, "parent_gen_id": payload.parent_gen_id, "actor": actor.label, "kind": "retry", "retry_of": job_id, "request": payload.model_dump()}
     store().save_job(retry)
-    _jobs.submit(_run_job, retry_id, payload, actor.label)
+    submit_generation_job(retry_id, payload, actor.label)
     return {"job_id": retry_id, "status": "queued", "retry_of": job_id, "poll": f"/api/v1/jobs/{retry_id}"}
 
 @app.get("/api/v1/jobs/{job_id}")
@@ -319,7 +451,11 @@ def generation_job(job_id: str) -> dict[str, Any]:
     if not job:
         raise HTTPException(404, "generation job not found")
     if job.get("generation_id"):
-        job = {**job, "generation": public(store().generation(job["generation_id"]))}
+        generation_row = store().generation(job["generation_id"])
+        if generation_row:
+            job = {**job, "generation": public(generation_row)}
+        else:
+            job = {**job, "status": "failed", "error": "generation record is missing from storage"}
     return job
 
 @app.post("/api/v1/generate")
@@ -393,32 +529,44 @@ def verify(gen_id: str) -> dict[str, Any]:
     row = store().generation(gen_id)
     if not row:
         raise HTTPException(404, "generation not found")
-    data = store().get(row["asset"]["b2_key"])
-    actual = hashlib.sha256(data).hexdigest()
-    expected = row["asset"].get("sha256")
-    manifest_present = bool(row.get("raw_manifest_key"))
+    expected = row.get("asset", {}).get("sha256")
+    actual: str | None = None
+    asset_error: str | None = None
+    try:
+        data = store().get(row["asset"]["b2_key"])
+        actual = hashlib.sha256(data).hexdigest()
+    except Exception as exc:
+        asset_error = str(exc)[:160]
+    asset_matches = bool(expected and actual and hmac.compare_digest(actual, expected))
+    manifest_recorded = bool(row.get("raw_manifest_key"))
+    manifest_present = False
     manifest_verified = False
-    manifest_error = None
+    manifest_error: str | None = None
     canonical_hash = row.get("genblaze", {}).get("canonical_hash")
-    if manifest_present:
+    if manifest_recorded:
         try:
-            from genblaze import parse_manifest
             raw_manifest = json.loads(store().get(row["raw_manifest_key"]))
-            manifest = parse_manifest(raw_manifest)
-            manifest_verified = bool(manifest.verify())
-            canonical_hash = manifest.canonical_hash
+            manifest_present = True
+            if row.get("provenance_kind") != "external_capture":
+                from genblaze import parse_manifest
+                manifest = parse_manifest(raw_manifest)
+                manifest_verified = bool(manifest.verify())
+                canonical_hash = manifest.canonical_hash
         except Exception as exc:
             manifest_error = str(exc)[:160]
+    externally_verified = asset_matches and manifest_present and row.get("provenance_kind") == "external_capture"
     return {
         "generation_id": gen_id,
         "asset_sha256": actual,
         "stored_sha256": expected,
-        "asset_hash_matches": actual == expected,
+        "asset_hash_matches": asset_matches,
+        "asset_error": asset_error,
+        "manifest_key_recorded": manifest_recorded,
         "manifest_present_on_b2": manifest_present,
         "manifest_verified": manifest_verified,
         "manifest_error": manifest_error,
         "canonical_manifest_hash": canonical_hash,
-        "status": "verified" if actual == expected and manifest_verified else ("externally_captured_asset_verified" if actual == expected and row.get("provenance_kind") == "external_capture" else "attention_required"),
+        "status": "verified" if asset_matches and manifest_verified else ("externally_captured_asset_verified" if externally_verified else "attention_required"),
         "provenance_kind": row.get("provenance_kind", "genblaze"),
     }
 
@@ -436,8 +584,8 @@ def evidence_bundle(gen_id: str) -> dict[str, Any]:
         "integrity": verify(gen_id),
         "lineage": lineage(gen_id),
         "verification_instructions": [
-            "Fetch the asset_url and compute SHA-256; compare it with integrity.expected_sha256.",
-            "Fetch raw_manifest_url and run genblaze.parse_manifest(...).verify().",
+            "Fetch the asset_url and compute SHA-256; compare it with integrity.stored_sha256.",
+            "Fetch raw_manifest_url and inspect the external capture record." if row.get("provenance_kind") == "external_capture" else "Fetch raw_manifest_url and run genblaze.parse_manifest(...).verify().",
             "Use the lineage record to inspect parent/child provenance.",
         ],
         "note": "This bundle intentionally omits service credentials and semantic embedding vectors.",
@@ -481,14 +629,16 @@ def rerun_recipe(gen_id: str, request: Request) -> dict[str, Any]:
     if not original:
         raise HTTPException(404, "generation not found")
     actor = require_generation_access(request)
+    if original.get("provenance_kind") == "external_capture":
+        raise HTTPException(409, "external captures have no Genblaze recipe to re-run; create a tracked fork instead")
     payload = GenerateRequest(
         prompt=original["prompt"], model=original["model"], params=original.get("params", {}),
-        tags=[*original.get("tags", []), "rerun"], parent_gen_id=gen_id, intent=IntentProfile(**original.get("intent", {})),
+        tags=[*original.get("tags", [])[:19], "rerun"], parent_gen_id=gen_id, intent=IntentProfile(**original.get("intent", {})),
     )
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     job = {"job_id": job_id, "status": "queued", "created": now(), "prompt": payload.prompt, "parent_gen_id": gen_id, "actor": actor.label, "kind": "rerun", "source_generation_id": gen_id, "request": payload.model_dump()}
     store().save_job(job)
-    _jobs.submit(_run_job, job_id, payload, actor.label)
+    submit_generation_job(job_id, payload, actor.label)
     return {"job_id": job_id, "status": "queued", "kind": "rerun", "source_generation_id": gen_id, "poll": f"/api/v1/jobs/{job_id}", "note": "This is a new paid Genblaze run using the original stored settings. Exact retrieval remains the free default."}
 
 @app.get("/api/v1/gen/{gen_id}/replay-recipe")
@@ -497,7 +647,8 @@ def replay_recipe(gen_id: str) -> dict[str, Any]:
     row = store().generation(gen_id)
     if not row:
         raise HTTPException(404, "generation not found")
-    return {"generation": public(row), "manifest_url": store().url(row["raw_manifest_key"]), "command": "genblaze replay manifest.json", "note": "Replay creates a new paid provider run; retrieve is Recall's exact free default."}
+    external = row.get("provenance_kind") == "external_capture"
+    return {"generation": public(row), "manifest_url": store().url(row["raw_manifest_key"]) if row.get("raw_manifest_key") else None, "command": None if external else "genblaze replay manifest.json", "note": "External captures preserve provider provenance but have no Genblaze recipe to replay." if external else "Replay creates a new paid provider run; retrieve is Recall's exact free default."}
 
 
 @app.post("/api/v1/gen/{gen_id}/reproduce")
@@ -507,8 +658,8 @@ def reproduce(gen_id: str, request: Request) -> dict[str, Any]:
     if not row:
         raise HTTPException(404, "generation not found")
     actor = require_generation_access(request, consume_public_quota=False)
-    event("reproduce", gen_id=gen_id, actor=actor.label, avoided_cost_usd=row.get("cost_usd"))
-    return {"generation": public(row), "message": "Exact stored asset retrieved - no new generation charge.", "avoided_cost_usd": row.get("cost_usd")}
+    accounting_recorded = event("reproduce", gen_id=gen_id, actor=actor.label, avoided_cost_usd=row.get("cost_usd"))
+    return {"generation": public(row), "message": "Exact stored asset retrieved - no new generation charge.", "avoided_cost_usd": row.get("cost_usd"), "accounting_recorded":accounting_recorded}
 
 
 @app.post("/api/v1/gen/{gen_id}/fork")
@@ -536,7 +687,7 @@ def approve(gen_id: str, request: Request) -> dict[str, Any]:
     actor = require_generation_access(request, consume_public_quota=False)
     approval = store().approve(row)
     row["approval"] = approval
-    row["locked"] = approval["status"] in {"locked", "local-approved"}
+    row["locked"] = approval["status"] == "locked"
     if row["locked"]:
         row["approved_asset"] = approval["asset"]
     store().save_generation(row)
@@ -549,17 +700,18 @@ def approve(gen_id: str, request: Request) -> dict[str, Any]:
 def savings() -> dict[str, Any]:
     rows, events = store().generations(), store().events()
     priced_rows = [row for row in rows if row.get("cost_usd") is not None]
-    priced_events = [item for item in events if item.get("avoided_cost_usd") is not None]
+    reproductions = [item for item in events if item.get("kind") == "reproduce"]
+    priced_reproductions = [item for item in reproductions if item.get("avoided_cost_usd") is not None]
     by_asset: dict[str, float] = {}
-    for item in priced_events:
+    for item in priced_reproductions:
         by_asset[item.get("gen_id", "unknown")] = by_asset.get(item.get("gen_id", "unknown"), 0.0) + float(item["avoided_cost_usd"])
     return {
         "total_spent": round(sum(float(row["cost_usd"]) for row in priced_rows), 4),
-        "total_saved": round(sum(float(item["avoided_cost_usd"]) for item in priced_events), 4),
-        "count_reproduced": sum(item.get("kind") == "reproduce" for item in events),
+        "total_saved": round(sum(float(item["avoided_cost_usd"]) for item in priced_reproductions), 4),
+        "count_reproduced": len(reproductions),
         "count_generated": len(rows),
         "unpriced_generations": len(rows) - len(priced_rows),
-        "unpriced_reproductions": len(events) - len(priced_events),
+        "unpriced_reproductions": len(reproductions) - len(priced_reproductions),
         "savings_by_asset": {key: round(value, 4) for key, value in by_asset.items()},
     }
 
@@ -586,9 +738,15 @@ def integration() -> dict[str, Any]:
 
 
 @app.get("/api/object/{key:path}")
-def object_file(key: str) -> Response:
+def object_file(key: str, expires: int = 0, signature: str = "") -> Response:
+    if root_store().mode != "local":
+        raise HTTPException(404, "object proxy is available only in local mode")
+    current = int(dt.datetime.now(dt.timezone.utc).timestamp())
+    expected = hmac.new(config.RECALL_RECEIPT_SECRET.encode(), f"{key}:{expires}".encode(), hashlib.sha256).hexdigest()
+    if expires < current or expires > current + 3600 or not signature or not hmac.compare_digest(expected, signature):
+        raise HTTPException(403, "object URL is invalid or expired")
     try:
-        return Response(store().get(key), media_type=mimetypes.guess_type(key)[0] or "application/octet-stream")
+        return Response(root_store().get(key), media_type=mimetypes.guess_type(key)[0] or "application/octet-stream")
     except (FileNotFoundError, ValueError):
         raise HTTPException(404, "object not found")
 

@@ -41,13 +41,29 @@ def main() -> None:
             missing.append("GEMINI_API_KEY or OPENAI_API_KEY")
         print(json.dumps({"ready":not missing,"missing":missing,"note":"Secrets are intentionally not displayed."}))
         raise SystemExit(1 if missing else 0)
-    relay=_relay()
     try:
+        relay=_relay()
         result=relay.generate_gemini(args.prompt, model=args.model, tags=args.tag, intent=_intent(args.intent), cost_usd=args.cost_usd) if args.command == "gemini" else relay.generate_openai(args.prompt, model=args.model, tags=args.tag, intent=_intent(args.intent), size=getattr(args, "size", None), cost_usd=args.cost_usd)
     except RecallRelayError as exc:
         print(json.dumps({"error":str(exc), "status":exc.status}), file=sys.stderr)
         raise SystemExit(2) from None
-    if result.media: Path(args.output).write_bytes(result.media)
-    print(json.dumps({"status":result.status,"generation_id":result.generation.get("gen_id"),"asset_url":result.generation.get("asset_url"),"receipt_id":result.receipt.get("receipt_id"),"output":args.output if result.media else None}))
+    except (RuntimeError, TypeError, ValueError) as exc:
+        print(json.dumps({"error":str(exc), "type":type(exc).__name__}), file=sys.stderr)
+        raise SystemExit(2) from None
+    output = None
+    if result.media:
+        requested = Path(args.output)
+        requested.parent.mkdir(parents=True, exist_ok=True)
+        output = requested
+        counter = 1
+        while output.exists():
+            output = requested.with_name(f"{requested.stem}-{counter}{requested.suffix}")
+            counter += 1
+        try:
+            output.write_bytes(result.media)
+        except OSError as exc:
+            print(json.dumps({"error":f"Media was archived by Recall but could not be written locally: {exc}", "generation_id":result.generation.get("gen_id"), "asset_url":result.generation.get("asset_url")}), file=sys.stderr)
+            raise SystemExit(3) from None
+    print(json.dumps({"status":result.status,"generation_id":result.generation.get("gen_id"),"asset_url":result.generation.get("asset_url"),"receipt_id":result.receipt.get("receipt_id"),"output":str(output) if output else None}))
 
 if __name__ == "__main__": main()

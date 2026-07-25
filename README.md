@@ -123,6 +123,10 @@ Use `.env.example` as the full environment reference. In production:
 - Set `RECALL_CORS_ORIGINS` to your real frontend origins.
 - Keep `RECALL_PUBLIC_GENERATIONS_PER_HOUR` low in demo mode, or set `RECALL_ALLOW_PUBLIC_GENERATE=false` once judges have an API key/test flow.
 - Rotate any broad B2 key that was previously used during development.
+- Set a unique `RECALL_RECEIPT_SECRET`; it salts prompt commitments without storing the raw reuse-check prompt in ledger receipts.
+- Tune public reuse checks, capture/output byte limits, and the bounded generation queue with the limits in `.env.example`.
+
+Production safeguards include fail-closed Object Lock writes, paginated B2 catalog reads, strict media-signature and parameter validation, bounded public/queued work, non-root Docker execution, workspace-scoped background jobs, and origin-scoped Relay credentials. Analytics-event failures cannot turn an already archived paid generation into a retryable failure; completed jobs surface an explicit warning instead.
 
 ## Verification
 

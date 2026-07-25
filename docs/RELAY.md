@@ -82,10 +82,11 @@ result = relay.generate_with(
     cost_usd=0.42,
 )
 ```
-`n## Trust and limits
+## Trust and limits
 
 - `cost_usd` is supplied by the caller and stored as `caller_reported`; Recall never invents external-provider pricing.
 - A private workspace pair or scoped `RECALL_API_KEY` is required to capture media.
-- Provider secrets remain in the caller process and are never included in Relay errors.
-- Each capture is limited to 18 MB. Larger video/audio workflows should upload through a future signed multipart path rather than base64.
+- Provider secrets remain in the caller process and are never included in Relay errors. Recall workspace headers are origin-scoped and are never attached to Gemini, OpenAI, or custom-provider requests.
+- Capture MIME types are allowlisted and checked against the actual file signature before B2 storage.
+- Each capture is limited to 18 MB by default (`RECALL_MAX_CAPTURE_BYTES` server-side and `max_media_bytes` in the client). Larger video/audio workflows should use a future signed multipart path rather than base64.
 - `RecallRelayError` exposes a safe HTTP status and response detail for operational handling.

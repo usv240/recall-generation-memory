@@ -1,6 +1,7 @@
 """Live Genblaze generation, native B2 persistence, and provenance capture."""
 from __future__ import annotations
 import json
+import math
 import uuid
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,7 @@ class RecallPipeline:
             parent_run_id=parent.get("genblaze",{}).get("run_id") or parent_id
         output, summary, raw_manifest=self._run_genblaze(prompt,model,params,parent_run_id)
         if output is None: raise RuntimeError("Live generation did not return an asset. Nothing was archived; check provider access or model support.")
+        if len(output) > config.RECALL_MAX_GENERATED_MEDIA_BYTES: raise RuntimeError("Generated media exceeds the configured archive limit; nothing was stored.")
         extension,content_type=self._image_format(output)
         asset=self.store.put(f"recall/assets/{gen_id}/output.{extension}",output,content_type); asset["content_type"]=content_type
         media_fingerprint=image_dhash(output)
@@ -74,11 +76,24 @@ class RecallPipeline:
         return "bin","application/octet-stream"
     @staticmethod
     def _read_asset(url:str)->bytes:
+        limit = config.RECALL_MAX_GENERATED_MEDIA_BYTES
         if url.startswith("file:"):
             path=unquote(urlparse(url).path)
             if path.startswith("/") and len(path)>2 and path[2]==":": path=path[1:]
-            return Path(path).read_bytes()
-        response=httpx.get(url,timeout=120); response.raise_for_status(); return response.content
+            source = Path(path)
+            if source.stat().st_size > limit:
+                raise RuntimeError("Provider asset exceeds the configured archive limit")
+            return source.read_bytes()
+        chunks: list[bytes] = []
+        total = 0
+        with httpx.stream("GET", url, timeout=120) as response:
+            response.raise_for_status()
+            for chunk in response.iter_bytes():
+                total += len(chunk)
+                if total > limit:
+                    raise RuntimeError("Provider asset exceeds the configured archive limit")
+                chunks.append(chunk)
+        return b"".join(chunks)
     def _sink(self):
         if self.store.mode!="b2" or not config.RECALL_NATIVE_SINK: return None
         from genblaze_core import ObjectStorageSink,KeyStrategy
@@ -111,9 +126,18 @@ class RecallPipeline:
                 for step in steps:
                     for asset in getattr(step,"assets",[]) or []:
                         if getattr(asset,"url",None):
-                            reported=getattr(step,"cost_usd",None) or getattr(step,"cost",None)
-                            summary["cost_usd"]=float(reported) if reported is not None else (float(config.RECALL_MODEL_COST_USD) if config.RECALL_MODEL_COST_USD else None)
-                            summary["price_source"]="provider" if reported is not None else ("configured_model_price" if config.RECALL_MODEL_COST_USD else "unknown")
+                            reported = getattr(step, "cost_usd", None)
+                            if reported is None:
+                                reported = getattr(step, "cost", None)
+                            provider_cost = None
+                            if reported is not None:
+                                try:
+                                    candidate = float(reported)
+                                    provider_cost = candidate if math.isfinite(candidate) and candidate >= 0 else None
+                                except (TypeError, ValueError):
+                                    provider_cost = None
+                            summary["cost_usd"] = provider_cost if provider_cost is not None else config.RECALL_MODEL_COST_USD
+                            summary["price_source"] = "provider" if provider_cost is not None else ("configured_model_price" if config.RECALL_MODEL_COST_USD is not None else "unknown")
                             summary["native_asset_url"]=asset.url
                             return self._read_asset(asset.url),summary,raw
                 diagnostics = [f"{getattr(step, 'status', 'unknown')}: {str(getattr(step, 'error', '') or getattr(step, 'error_code', '') or 'no asset')[:180]}" for step in steps]

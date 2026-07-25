@@ -31,6 +31,8 @@ class SlidingWindowLimiter:
                 return False, 0
             values.append(current)
             self._hits[key] = values
+            if len(self._hits) > 10_000:
+                self._hits = {name: hits for name, hits in self._hits.items() if any(hit >= cutoff for hit in hits)}
             return True, max(0, limit - len(values))
 
 
@@ -38,7 +40,7 @@ limiter = SlidingWindowLimiter()
 
 
 def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[-1].strip()
     return forwarded or (request.client.host if request.client else "unknown")
 
 
@@ -88,3 +90,18 @@ def require_generation_access(request: Request, *, consume_public_quota: bool = 
     if not allowed:
         raise HTTPException(429, "Public demo generation limit reached. Try later or use an X-Recall-Key.")
     return Actor("public_demo", f"ip_{hashlib.sha256(ip.encode()).hexdigest()[:10]}_remaining_{remaining}")
+
+def require_reuse_access(request: Request) -> Actor:
+    """Allow integrations freely while bounding public embedding/B2 ledger work."""
+    workspace_actor = getattr(request.state, "workspace_actor", None)
+    if workspace_actor:
+        return Actor("workspace", workspace_actor)
+    actor = _api_key_actor(request)
+    if actor:
+        return actor
+    ip = _client_ip(request)
+    allowed, remaining = limiter.allow(f"reuse:{ip}", config.RECALL_PUBLIC_REUSE_CHECKS_PER_HOUR)
+    if not allowed:
+        raise HTTPException(429, "Public reuse-check limit reached. Try later or use a Recall workspace/API key.")
+    fingerprint = hashlib.sha256(ip.encode()).hexdigest()[:10]
+    return Actor("public_reuse", f"ip_{fingerprint}_remaining_{remaining}")
