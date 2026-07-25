@@ -488,6 +488,47 @@ def test_frontend_has_no_dead_end_reuse_gate_or_encoding_regression():
             for char in page_source
         )
 
+def _contrast_ratio(first: str, second: str) -> float:
+    def luminance(value: str) -> float:
+        value = value.strip().lstrip("#")
+        if len(value) == 3:
+            value = "".join(character * 2 for character in value)
+        channels = [int(value[index:index + 2], 16) / 255 for index in (0, 2, 4)]
+        linear = [channel / 12.92 if channel <= 0.03928 else ((channel + 0.055) / 1.055) ** 2.4 for channel in channels]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+    brighter, darker = sorted((luminance(first), luminance(second)), reverse=True)
+    return (brighter + 0.05) / (darker + 0.05)
+
+
+def test_frontend_themes_have_accessible_semantic_roles_and_progressive_disclosure():
+    frontend = Path(__file__).resolve().parents[1] / "frontend"
+    pages = {
+        "index.html": "surface",
+        "app.html": "panel",
+        "certificate.html": "surface",
+    }
+    for filename, surface_role in pages.items():
+        page = (frontend / filename).read_text(encoding="utf-8")
+        dark_match = re.search(r":root\{([^}]*)\}", page)
+        light_match = re.search(r"\[data-theme=light\]\{([^}]*)\}", page)
+        assert dark_match and light_match
+        for match in (dark_match, light_match):
+            tokens = dict(re.findall(r"--([\w-]+):([^;}]+)", match.group(1)))
+            surface = tokens[surface_role].strip()
+            assert _contrast_ratio(tokens["ink"], surface) >= 7
+            assert _contrast_ratio(tokens["muted"], surface) >= 4.5
+            assert _contrast_ratio(tokens["violet"], surface) >= 4.5
+            assert _contrast_ratio(tokens["mint"], surface) >= 4.5
+            assert _contrast_ratio(tokens["control-border"], surface) >= 3
+            assert _contrast_ratio(tokens["on-primary"], tokens["violet"]) >= 4.5
+        assert 'id="theme-control"' in page
+    landing = (frontend / "index.html").read_text(encoding="utf-8")
+    workspace = (frontend / "app.html").read_text(encoding="utf-8")
+    assert "renderLandingMedia" in landing and "fetch('/api/v1/library')" in landing
+    assert '<details class="intent-disclosure">' in workspace
+    assert '<details class="guide">' in workspace and '<details class="guide" open>' not in workspace
+    assert "width:24px;height:24px" in landing and "width:24px;height:24px" in workspace
+
 def test_exact_reuse_match_skips_external_embedding_call(monkeypatch):
     import backend.app.reuse as reuse_module
     monkeypatch.setattr(reuse_module, "embed", lambda prompt: (_ for _ in ()).throw(AssertionError("exact matches should not call embeddings")))
