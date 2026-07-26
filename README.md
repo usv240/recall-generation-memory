@@ -160,8 +160,8 @@ The storage adapter paginates B2 listings, scopes workspace keys under fixed pre
 Genblaze is responsible for more than calling a model:
 
 - a Genblaze **Pipeline** orchestrates generation
-- a provider adapter connects Google Gemini image generation
-- fallback models can be configured without changing the product workflow
+- provider adapters connect Google Gemini and GMI Cloud image generation
+- provider-specific fallback models can be configured without crossing route or price boundaries
 - retries are recorded as part of the job path
 - the raw Genblaze manifest is stored beside every orchestrated asset
 - Recall fills output hash, byte size, and media type into the manifest when needed
@@ -169,7 +169,7 @@ Genblaze is responsible for more than calling a model:
 - parent run identifiers preserve lineage for forks and reruns
 - the native Genblaze ObjectStorageSink path is verified end to end against private B2, with authenticated retrieval and workspace-scoped prefixes
 
-The live deployment uses Google **gemini-3.1-flash-image** for image generation. Optional semantic search uses **gemini-embedding-001**. Provider and model names are stored with each generation instead of being hidden behind generic labels.
+The live deployment uses Google **gemini-3.1-flash-image** and GMI Cloud **gpt-image-2-generate**. A verified GMI child of a Google asset proves cross-provider lineage, native B2 sink persistence, and canonical manifest verification. Optional semantic search uses **gemini-embedding-001**. Provider and model names are stored with each generation instead of being hidden behind generic labels.
 
 ## Recall Relay: use your own model and keep the memory
 
@@ -215,7 +215,7 @@ See [Relay documentation](docs/RELAY.md) and the [Python package guide](sdk/pyth
 
 - Docker Desktop, or Python 3.12
 - a Backblaze B2 bucket and bucket-restricted application key for full B2 behavior
-- a Google API key for live image generation
+- a Google or GMI Cloud API key for live image generation, or both for cross-provider routing
 
 Recall can start with local storage when B2 credentials are absent. That is useful for interface development, but B2 readiness, signed delivery, and Object Lock require real B2 configuration.
 
@@ -449,7 +449,7 @@ railway.toml       Railway health-check deployment configuration
 
 ## Honest boundaries
 
-- Built-in generation currently targets images through Google Gemini. Relay capture supports selected image, video, and audio formats.
+- Built-in generation currently targets images through Google Gemini and GMI Cloud. Relay capture supports selected image, video, and audio formats.
 - Exact download is bit-for-bit because it serves the stored B2 object. Provider replay is a new paid run and may differ.
 - External captures preserve provider, model, caller-reported cost, and byte integrity, but are not represented as Genblaze-generated runs.
 - Recall Ledger proves canonical receipt integrity and chain continuity. It does not claim third-party identity signatures or full C2PA compliance.

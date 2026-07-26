@@ -32,7 +32,7 @@
 
 - [ ] Public working URL
 - [ ] Public GitHub repository containing this source and README, or if private, access granted to the `b2genblaze` testing account
-- [ ] Explicit provider/model list: Google Gemini `gemini-3.1-flash-image`; Gemini embeddings if enabled
+- [ ] Explicit provider/model list: Google Gemini `gemini-3.1-flash-image`, GMI Cloud `gpt-image-2-generate`, and Gemini embeddings if enabled
 - [ ] Explicit B2 explanation: assets, manifests, catalog, events, Object Lock copies
 - [ ] Explicit Genblaze explanation: Pipeline, custom provider, fallback models, canonical manifests, lineage
 - [ ] Public video below three minutes with live functionality on-screen

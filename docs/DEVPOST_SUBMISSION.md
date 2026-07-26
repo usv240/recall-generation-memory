@@ -42,7 +42,7 @@ Recall turns each generation into a durable, inspectable B2 record:
 
 ## How we built it
 
-FastAPI serves a lightweight responsive web workspace and versioned API. A Genblaze Pipeline orchestrates the Google Gemini image provider, captures canonical provenance metadata, records parent-run lineage, and supports fallback configuration. Recall stores the image bytes, raw Genblaze manifest, readable recipe, catalog record, event ledger, embedding index, and approved Object Lock copy in Backblaze B2.
+FastAPI serves a lightweight responsive web workspace and versioned API. A Genblaze Pipeline orchestrates Google Gemini and GMI Cloud image providers, captures canonical provenance metadata, records cross-provider parent-run lineage, and applies provider-specific fallback and cost configuration. Recall stores the image bytes, raw Genblaze manifest, readable recipe, catalog record, event ledger, embedding index, and approved Object Lock copy in Backblaze B2.
 
 Google Gemini embeddings power semantic recall. They remain an internal B2 catalog index and are never exposed through the public API. Railway hosts the application; B2 remains the durable system of record.
 
@@ -55,6 +55,7 @@ Google Gemini embeddings power semantic recall. They remain an internal B2 catal
 ## Providers and models
 
 - Google Gemini: `gemini-3.1-flash-image` for image generation
+- GMI Cloud: `gpt-image-2-generate` for image generation and verified cross-provider lineage
 - Google Gemini: `gemini-embedding-001` for optional semantic matching
 - Genblaze SDK for orchestration and provenance
 - Backblaze B2 for durable storage and Object Lock
