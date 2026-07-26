@@ -8,7 +8,7 @@ Show Model Spend, Saved by Recall, Paid Calls Avoided, and the real Savings / Sp
 
 ## 0:20 - 0:45: more than a DAM
 
-"Recall connects the exact original to its prompt, provider recipe, intent, lineage, integrity hash, approval, and reuse history across tools. This is active spend control before generation, not a gallery after generation."
+"Recall connects each image or video to its prompt, provider recipe, intent, lineage, integrity hash, approval, and reuse history across tools. This is active spend control before generation, not a gallery after generation. Video makes the avoided wait and cost especially valuable."
 
 Open the asset and click **Proof**.
 
@@ -39,9 +39,9 @@ Show an existing fork and its lineage. Avoid spending demo time waiting for a fr
 
 ## 2:08 - 2:28: production proof
 
-"Approved work can be copied to an Object Lock-protected B2 final. The workspace also exposes receipts, evidence exports, scoped private workspaces, an API, and the published Recall Relay package for any provider."
+"Approved work can be copied to an Object Lock-protected B2 final. This generation also proves automatic provider fallback, and the prompt-free CSV exports spend, savings, lineage, verification, and lock status for finance. Recall also exposes receipts, private workspaces, an API, and the published Relay package."
 
-Show the approved state, evidence export, and package name briefly.
+Show the approved state, a card with the automatic fallback badge, the savings CSV button, and the package name briefly.
 
 ## 2:28 - 2:45: close on the unique value
 

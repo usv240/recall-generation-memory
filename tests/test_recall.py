@@ -785,3 +785,138 @@ def test_provider_errors_redact_internal_urls():
     assert "token=secret" not in message
     assert "401" in message
     assert "[redacted-url]" in message
+
+def test_multimodal_generation_and_economics_are_end_to_end(monkeypatch):
+    memory = MemoryStore()
+    monkeypatch.setattr(config, "GMI_API_KEY", "gmi-test")
+    monkeypatch.setattr("backend.app.pipeline.embed", lambda prompt: None)
+    attempts = []
+
+    def fake_run(self, prompt, model, params, parent_run_id, provider_name, modality):
+        attempts.append((provider_name, model, modality, dict(params)))
+        video = b"0000ftypisom" + b"video-bytes"
+        return video, {"run_id":"run-video", "cost_usd":1.25, "price_source":"provider", "native_b2_sink":True}, {}
+
+    monkeypatch.setattr(RecallPipeline, "_run_genblaze", fake_run)
+    row = RecallPipeline(memory).generate(
+        prompt="slow orbit around a blue product",
+        model=None,
+        params={},
+        tags=["video"],
+        provider="gmi",
+        modality="video",
+    )
+    assert row["modality"] == "video"
+    assert row["provider"] == "gmi"
+    assert row["asset"]["b2_key"].endswith(".mp4")
+    assert row["asset"]["content_type"] == "video/mp4"
+    assert row["media_fingerprint"] is None
+    assert row["params"] == {"duration":3, "resolution":"480p", "aspect_ratio":"16:9"}
+    assert row["genblaze"]["routing"]["fallback_used"] is False
+    assert attempts == [("gmi", config.GMI_MODEL_VIDEO, "video", row["params"])]
+
+
+def test_cross_provider_fallback_is_durable_and_observable(monkeypatch):
+    memory = MemoryStore()
+    monkeypatch.setattr(config, "GOOGLE_API_KEY", "google-test")
+    monkeypatch.setattr(config, "GMI_API_KEY", "gmi-test")
+    monkeypatch.setattr("backend.app.pipeline.embed", lambda prompt: None)
+    attempts = []
+
+    def fake_run(self, prompt, model, params, parent_run_id, provider_name, modality):
+        attempts.append(provider_name)
+        if provider_name == "google":
+            return None, {"error":"intentional primary failure"}, {}
+        return bytes.fromhex("ffd8ff") + b"image-bytes", {"run_id":"run-fallback", "cost_usd":0.1}, {}
+
+    monkeypatch.setattr(RecallPipeline, "_run_genblaze", fake_run)
+    row = RecallPipeline(memory).generate(
+        prompt="fallback proof image",
+        model=None,
+        params={},
+        tags=["fallback-proof"],
+        provider="google",
+        fallback_provider="gmi",
+        modality="image",
+    )
+    routing = row["genblaze"]["routing"]
+    assert row["provider"] == "gmi"
+    assert routing["requested_provider"] == "google"
+    assert routing["fallback_used"] is True
+    assert routing["attempted_providers"] == ["google", "gmi"]
+    assert "intentional primary failure" in routing["primary_error"]
+    assert attempts == ["google", "gmi"]
+
+
+def test_reuse_gate_never_crosses_media_types():
+    memory = MemoryStore()
+    image = sample(memory)
+    video = dict(image)
+    video["gen_id"] = "gen_video"
+    video["modality"] = "video"
+    video["asset"] = memory.put("recall/assets/gen_video/output.mp4", b"0000ftypisomvideo", "video/mp4")
+    memory.save_generation(video)
+    main._store = memory
+    client = TestClient(main.app)
+    image_match = client.post("/api/v1/reuse-check", json={"prompt":"blue launch hero", "modality":"image"}).json()
+    video_match = client.post("/api/v1/reuse-check", json={"prompt":"blue launch hero", "modality":"video"}).json()
+    assert image_match["matches"][0]["gen_id"] == "gen_demo"
+    assert video_match["matches"][0]["gen_id"] == "gen_video"
+
+
+def test_savings_csv_is_prompt_free_spreadsheet_safe_and_auditable():
+    memory = MemoryStore()
+    row = sample(memory)
+    row["model"] = "=unsafe-spreadsheet-formula"
+    row["modality"] = "image"
+    row["genblaze"] = {
+        "manifest_verified":True,
+        "native_b2_sink":True,
+        "routing":{"requested_provider":"gmi", "fallback_used":True},
+    }
+    row["approval"] = {"status":"locked"}
+    row["locked"] = True
+    memory.save_generation(row)
+    memory.record_event({"kind":"reproduce", "gen_id":"gen_demo", "avoided_cost_usd":0.067})
+    main._store = memory
+    response = TestClient(main.app).get("/api/v1/exports/savings.csv")
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == 'attachment; filename="recall-savings-ledger.csv"'
+    assert "blue launch hero" not in response.text
+    assert "'=unsafe-spreadsheet-formula" in response.text
+    assert "locked" in response.text
+    assert "True" in response.text
+    assert "0.067" in response.text
+
+
+def test_integration_describes_video_models_and_economics_export(monkeypatch):
+    monkeypatch.setattr(config, "GOOGLE_API_KEY", "configured-google")
+    monkeypatch.setattr(config, "GMI_API_KEY", "configured-gmi")
+    result = TestClient(main.app).get("/api/v1/integration").json()
+    providers = {item["id"]:item for item in result["generation"]["providers"]}
+    assert providers["google"]["modalities"] == ["image"]
+    assert providers["gmi"]["modalities"] == ["image", "video"]
+    assert providers["gmi"]["default_models"]["video"] == config.GMI_MODEL_VIDEO
+    assert result["flows"]["savings_csv"] == "GET /api/v1/exports/savings.csv"
+
+def test_public_video_generation_has_a_tighter_credit_guard(monkeypatch):
+    memory = MemoryStore()
+    row = sample(memory)
+    row["modality"] = "video"
+    main._store = memory
+    monkeypatch.setattr(config, "RECALL_ALLOW_PUBLIC_GENERATE", True)
+    monkeypatch.setattr(config, "RECALL_PUBLIC_GENERATIONS_PER_HOUR", 10)
+    monkeypatch.setattr(config, "RECALL_PUBLIC_VIDEO_GENERATIONS_PER_HOUR", 1)
+    monkeypatch.setattr(main._jobs, "submit", lambda fn, *args: fn(*args))
+    monkeypatch.setattr(main.RecallPipeline, "generate", lambda self, **kwargs: row)
+    ip = "198.51.100.209"
+    with limiter._lock:
+        limiter._hits.pop(f"public:{ip}", None)
+        limiter._hits.pop(f"public-video:{ip}", None)
+    client = TestClient(main.app)
+    headers = {"X-Forwarded-For":ip}
+    payload = {"prompt":"short launch video", "modality":"video", "provider":"gmi"}
+    assert client.post("/api/v1/jobs/generate", headers=headers, json=payload).status_code == 202
+    blocked = client.post("/api/v1/jobs/generate", headers=headers, json=payload)
+    assert blocked.status_code == 429
+    assert "video limit" in blocked.json()["detail"].casefold()

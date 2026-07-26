@@ -91,6 +91,16 @@ def require_generation_access(request: Request, *, consume_public_quota: bool = 
         raise HTTPException(429, "Public demo generation limit reached. Try later or use an X-Recall-Key.")
     return Actor("public_demo", f"ip_{hashlib.sha256(ip.encode()).hexdigest()[:10]}_remaining_{remaining}")
 
+def require_public_video_quota(request: Request, actor: Actor) -> None:
+    """Apply a tighter credit guard to expensive public video jobs."""
+    if actor.kind != "public_demo":
+        return
+    ip = _client_ip(request)
+    allowed, _ = limiter.allow(f"public-video:{ip}", config.RECALL_PUBLIC_VIDEO_GENERATIONS_PER_HOUR)
+    if not allowed:
+        raise HTTPException(429, "Public demo video limit reached. Try later or use an X-Recall-Key.")
+
+
 def require_reuse_access(request: Request) -> Actor:
     """Allow integrations freely while bounding public embedding/B2 ledger work."""
     workspace_actor = getattr(request.state, "workspace_actor", None)

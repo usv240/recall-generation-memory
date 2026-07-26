@@ -42,6 +42,7 @@ class Config:
     GMI_API_KEY = _env("GMI_API_KEY")
     GMI_IMAGE_BASE_URL = _env("GMI_IMAGE_BASE_URL", "https://console.gmicloud.ai/api/v1/ie/requestqueue/apikey")
     GMI_MODEL_IMAGE = _env("GMI_MODEL_IMAGE", "gpt-image-2-generate")
+    GMI_MODEL_VIDEO = _env("GMI_MODEL_VIDEO", "seedance-2-0-260128")
     GOOGLE_API_KEY = _env("GOOGLE_API_KEY")
     GOOGLE_MODEL_IMAGE = _env("GOOGLE_MODEL_IMAGE", "gemini-3.1-flash-image")
     RECALL_PROVIDER = _env("RECALL_PROVIDER", "google")
@@ -49,10 +50,12 @@ class Config:
     RECALL_MODEL_COST_USD = _optional_nonnegative_float("RECALL_MODEL_COST_USD")
     RECALL_GOOGLE_MODEL_COST_USD = _optional_nonnegative_float("RECALL_GOOGLE_MODEL_COST_USD")
     RECALL_GMI_MODEL_COST_USD = _optional_nonnegative_float("RECALL_GMI_MODEL_COST_USD")
+    RECALL_GMI_VIDEO_COST_USD = _optional_nonnegative_float("RECALL_GMI_VIDEO_COST_USD")
     RECALL_NATIVE_SINK = _bool("RECALL_NATIVE_SINK")
     RECALL_FALLBACK_MODELS = [m.strip() for m in (_env("RECALL_FALLBACK_MODELS", "") or "").split(",") if m.strip()]
     RECALL_GOOGLE_FALLBACK_MODELS = [m.strip() for m in (_env("RECALL_GOOGLE_FALLBACK_MODELS", "") or "").split(",") if m.strip()]
     RECALL_GMI_FALLBACK_MODELS = [m.strip() for m in (_env("RECALL_GMI_FALLBACK_MODELS", "") or "").split(",") if m.strip()]
+    RECALL_GMI_VIDEO_FALLBACK_MODELS = [m.strip() for m in (_env("RECALL_GMI_VIDEO_FALLBACK_MODELS", "") or "").split(",") if m.strip()]
     RECALL_GENERATION_RETRIES = max(1, int(_env("RECALL_GENERATION_RETRIES", "2") or 2))
     RECALL_JOB_STALE_MINUTES = max(5, int(_env("RECALL_JOB_STALE_MINUTES", "20") or 20))
     RECALL_MAX_ACTIVE_AND_QUEUED_JOBS = max(2, int(_env("RECALL_MAX_ACTIVE_AND_QUEUED_JOBS", "20") or 20))
@@ -63,9 +66,11 @@ class Config:
     # RECALL_API_KEYS (comma-separated secrets) gives integrations an authenticated lane.
     RECALL_ALLOW_PUBLIC_GENERATE = _bool("RECALL_ALLOW_PUBLIC_GENERATE", "true")
     RECALL_PUBLIC_GENERATIONS_PER_HOUR = max(1, int(_env("RECALL_PUBLIC_GENERATIONS_PER_HOUR", "3") or 3))
+    RECALL_PUBLIC_VIDEO_GENERATIONS_PER_HOUR = max(1, int(_env("RECALL_PUBLIC_VIDEO_GENERATIONS_PER_HOUR", "1") or 1))
     RECALL_PUBLIC_REUSE_CHECKS_PER_HOUR = max(1, int(_env("RECALL_PUBLIC_REUSE_CHECKS_PER_HOUR", "120") or 120))
     RECALL_MAX_CAPTURE_BYTES = min(104_857_600, max(1_048_576, int(_env("RECALL_MAX_CAPTURE_BYTES", "18874368") or 18_874_368)))
     RECALL_MAX_GENERATED_MEDIA_BYTES = min(104_857_600, max(1_048_576, int(_env("RECALL_MAX_GENERATED_MEDIA_BYTES", "26214400") or 26_214_400)))
+    RECALL_MAX_GENERATED_VIDEO_BYTES = min(524_288_000, max(5_242_880, int(_env("RECALL_MAX_GENERATED_VIDEO_BYTES", "104857600") or 104_857_600)))
     RECALL_API_KEYS = [key.strip() for key in (_env("RECALL_API_KEYS", "") or "").split(",") if key.strip()]
     RECALL_CORS_ORIGINS = [origin.strip() for origin in (_env("RECALL_CORS_ORIGINS", "") or "").split(",") if origin.strip()]
 
@@ -98,11 +103,18 @@ class Config:
         preferred = self.RECALL_PROVIDER.casefold()
         return preferred if preferred in configured else (configured[0] if configured else preferred)
 
-    def provider_is_configured(self, provider: str) -> bool:
-        return provider.casefold() in self.available_generation_providers
-
-    def default_model_for(self, provider: str) -> str:
+    def provider_is_configured(self, provider: str, modality: str = "image") -> bool:
         normalized = provider.casefold()
+        if modality.casefold() == "video":
+            return normalized == "gmi" and bool(self.GMI_API_KEY)
+        return normalized in self.available_generation_providers
+
+    def default_model_for(self, provider: str, modality: str = "image") -> str:
+        normalized = provider.casefold()
+        if modality.casefold() == "video":
+            if normalized == "gmi":
+                return self.GMI_MODEL_VIDEO
+            raise ValueError(f"{provider} does not provide configured video generation")
         if normalized == self.RECALL_PROVIDER.casefold() and self.RECALL_MODEL:
             return self.RECALL_MODEL
         if normalized == "google":
@@ -111,10 +123,12 @@ class Config:
             return self.GMI_MODEL_IMAGE
         raise ValueError(f"unsupported generation provider: {provider}")
 
-    def model_cost_for(self, provider: str, model: str) -> float | None:
+    def model_cost_for(self, provider: str, model: str, modality: str = "image") -> float | None:
         normalized = provider.casefold()
-        if model != self.default_model_for(normalized):
+        if model != self.default_model_for(normalized, modality):
             return None
+        if modality.casefold() == "video":
+            return self.RECALL_GMI_VIDEO_COST_USD if normalized == "gmi" else None
         if normalized == "google" and self.RECALL_GOOGLE_MODEL_COST_USD is not None:
             return self.RECALL_GOOGLE_MODEL_COST_USD
         if normalized == "gmi" and self.RECALL_GMI_MODEL_COST_USD is not None:
@@ -123,8 +137,10 @@ class Config:
             return self.RECALL_MODEL_COST_USD
         return None
 
-    def fallback_models_for(self, provider: str) -> list[str]:
+    def fallback_models_for(self, provider: str, modality: str = "image") -> list[str]:
         normalized = provider.casefold()
+        if modality.casefold() == "video":
+            return self.RECALL_GMI_VIDEO_FALLBACK_MODELS if normalized == "gmi" else []
         specific = self.RECALL_GOOGLE_FALLBACK_MODELS if normalized == "google" else self.RECALL_GMI_FALLBACK_MODELS
         if specific:
             return specific

@@ -7,8 +7,8 @@
 - [ ] Configure `RECALL_API_KEYS` for integrations and a small public demo quota.
 - [ ] Set `RECALL_CORS_ORIGINS` to the deployed domain.
 - [ ] Confirm B2 Object Lock is enabled before demonstrating approval.
-- [ ] Generate 6 to 10 showcase assets, including a fork and an approved final.
-- [ ] Test generate, Reuse Gate, retrieve, fork, proof receipt, approval, light theme, and mobile layout from the public URL.
+- [ ] Generate 6 to 10 showcase assets, including a short video, an automatic cross-provider fallback, a fork, and an approved final.
+- [ ] Test image and video generation, automatic fallback, modality-safe Reuse Gate, retrieve, fork, proof receipt, CSV export, approval, light theme, and mobile layout from the public URL.
 
 ## Three-minute demo sequence
 
@@ -19,8 +19,8 @@
 5. Type a semantically related need and let Reuse Gate pause the paid action.
 6. Hold on the live comparison between generating again and `$0.00` new model cost for exact retrieval.
 7. Retrieve the original and show Saved by Recall and Paid Calls Avoided increase.
-8. Show one existing controlled fork and its parent link.
-9. Show the approved Object Lock state, then close on: Recall proves what the team did not need to generate.
+8. Show one existing controlled fork, one short video, and the automatic provider fallback badge.
+9. Export the prompt-free savings CSV, show the approved Object Lock state, then close on: Recall proves what the team did not need to generate.
 
 ## Honest impact framing
 
@@ -32,9 +32,9 @@
 
 - [ ] Public working URL
 - [ ] Public GitHub repository containing this source and README, or if private, access granted to the `b2genblaze` testing account
-- [ ] Explicit provider/model list: Google Gemini `gemini-3.1-flash-image`, GMI Cloud `gpt-image-2-generate`, and Gemini embeddings if enabled
-- [ ] Explicit B2 explanation: assets, manifests, catalog, events, Object Lock copies
-- [ ] Explicit Genblaze explanation: Pipeline, custom provider, fallback models, canonical manifests, lineage
+- [ ] Explicit provider/model list: Google Gemini image, GMI Cloud image, GMI Cloud video, and Gemini embeddings if enabled
+- [ ] Explicit B2 explanation: image and video assets, manifests, catalog, events, CSV economics evidence, and Object Lock copies
+- [ ] Explicit Genblaze explanation: image and video Pipelines, provider adapters, visible cross-provider fallback, canonical manifests, native B2 sink, and lineage
 - [ ] Public video below three minutes with live functionality on-screen
 - [ ] Multiple-submission differentiation stated clearly: Recall is pre-generation spend control and cross-tool memory; Trueprint is post-creation authenticity analysis
 - [ ] Optional: submit the documented ObjectStorageSink/B2 reproduction as constructive Genblaze feedback

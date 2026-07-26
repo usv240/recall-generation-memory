@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import contextvars
+import csv
+import io
 import binascii
 import hashlib
 import datetime as dt
@@ -31,7 +33,7 @@ from .policy import POLICY_VERSION, clean_intent, decision
 from .ledger import create_receipt, verify_receipt, prompt_commitment
 from .semantic import embed
 from .media import image_dhash, sha256
-from .security import require_generation_access, require_integration_access, require_private_api_key, require_reuse_access
+from .security import require_generation_access, require_integration_access, require_private_api_key, require_public_video_quota, require_reuse_access
 from .storage import RecallStore, now
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -198,7 +200,9 @@ class ParameterizedRequest(BaseModel):
 
 class GenerateRequest(ParameterizedRequest):
     prompt: str = Field(min_length=3, max_length=1000)
+    modality: str = Field(default="image", pattern="^(image|video)$")
     provider: str | None = Field(default=None, pattern="^(google|gmi)$")
+    fallback_provider: str | None = Field(default=None, pattern="^(google|gmi)$")
     model: str | None = Field(default=None, min_length=1, max_length=160)
     tags: list[ShortTag] = Field(default_factory=list, max_length=20)
     parent_gen_id: str | None = Field(default=None, max_length=80)
@@ -207,13 +211,16 @@ class GenerateRequest(ParameterizedRequest):
 
 class ReuseRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=1000)
+    modality: str = Field(default="image", pattern="^(image|video)$")
     tags: list[ShortTag] = Field(default_factory=list, max_length=20)
     intent: IntentProfile = Field(default_factory=IntentProfile)
 
 
 class ForkRequest(ParameterizedRequest):
     prompt: str = Field(min_length=3, max_length=1000)
+    modality: str | None = Field(default=None, pattern="^(image|video)$")
     provider: str | None = Field(default=None, pattern="^(google|gmi)$")
+    fallback_provider: str | None = Field(default=None, pattern="^(google|gmi)$")
     model: str | None = Field(default=None, min_length=1, max_length=160)
     intent: IntentProfile = Field(default_factory=IntentProfile)
 
@@ -294,8 +301,9 @@ def _run_job(job_id: str, payload: GenerateRequest, actor: str, workspace_id: st
         job.update({"status": "running", "started": now()})
         task_store.save_job(job)
         try:
-            row = RecallPipeline(task_store).generate(prompt=payload.prompt, model=payload.model, provider=payload.provider, params=payload.params, tags=payload.tags, parent_id=payload.parent_gen_id, intent=clean_intent(payload.intent.model_dump()))
-            event_recorded = event("generate", gen_id=row["gen_id"], actor=actor, provider=row["provider"], model=row["model"], cost_usd=row.get("cost_usd"), job_id=job_id)
+            row = RecallPipeline(task_store).generate(prompt=payload.prompt, model=payload.model, provider=payload.provider, params=payload.params, tags=payload.tags, parent_id=payload.parent_gen_id, intent=clean_intent(payload.intent.model_dump()), modality=payload.modality, fallback_provider=payload.fallback_provider)
+            routing = row.get("genblaze", {}).get("routing", {})
+            event_recorded = event("generate", gen_id=row["gen_id"], actor=actor, provider=row["provider"], model=row["model"], modality=row.get("modality", "image"), fallback_used=bool(routing.get("fallback_used")), requested_provider=routing.get("requested_provider"), cost_usd=row.get("cost_usd"), job_id=job_id)
             job.update({"status": "completed", "completed": now(), "generation_id": row["gen_id"]})
             if not event_recorded:
                 job["warning"] = "Generation archived, but its analytics event could not be recorded."
@@ -350,13 +358,15 @@ def health() -> dict[str, Any]:
         "live_mode": True,
         "generation_provider": config.has_generation_provider,
         "generation_providers": config.available_generation_providers,
+        "generation_modalities": ["image", *(["video"] if config.provider_is_configured("gmi", "video") else [])],
         "default_generation_provider": config.default_generation_provider,
         "native_genblaze_b2_sink": store().mode == "b2" and config.RECALL_NATIVE_SINK,
         "api_version": "v1",
         "public_demo_generation_limit_per_hour": config.RECALL_PUBLIC_GENERATIONS_PER_HOUR if config.RECALL_ALLOW_PUBLIC_GENERATE else 0,
+        "public_demo_video_limit_per_hour": config.RECALL_PUBLIC_VIDEO_GENERATIONS_PER_HOUR if config.RECALL_ALLOW_PUBLIC_GENERATE else 0,
         "public_reuse_check_limit_per_hour": config.RECALL_PUBLIC_REUSE_CHECKS_PER_HOUR,
         "api_key_access": bool(config.RECALL_API_KEYS),
-        "limits": {"capture_bytes":config.RECALL_MAX_CAPTURE_BYTES, "generated_media_bytes":config.RECALL_MAX_GENERATED_MEDIA_BYTES, "active_and_queued_jobs":config.RECALL_MAX_ACTIVE_AND_QUEUED_JOBS},
+        "limits": {"capture_bytes":config.RECALL_MAX_CAPTURE_BYTES, "generated_media_bytes":config.RECALL_MAX_GENERATED_MEDIA_BYTES, "generated_video_bytes":config.RECALL_MAX_GENERATED_VIDEO_BYTES, "active_and_queued_jobs":config.RECALL_MAX_ACTIVE_AND_QUEUED_JOBS},
     }
 
 
@@ -379,14 +389,15 @@ def ready() -> dict[str, Any]:
         warnings.append("Enable RECALL_NATIVE_SINK to persist Genblaze outputs directly through its B2 storage sink.")
     if not config.RECALL_CORS_ORIGINS:
         warnings.append("Set RECALL_CORS_ORIGINS to the production frontend origin.")
-    return {"ok": True, "checks": {"b2": "reachable", "generation_provider": "configured", "generation_providers":config.available_generation_providers, "receipt_commitments":"configured" if receipt_secret_strong else "development-default"}, "warnings":warnings, "recovered_interrupted_jobs": recovered_jobs}
+    return {"ok": True, "checks": {"b2": "reachable", "generation_provider": "configured", "generation_providers":config.available_generation_providers, "generation_modalities":["image", *(["video"] if config.provider_is_configured("gmi", "video") else [])], "receipt_commitments":"configured" if receipt_secret_strong else "development-default"}, "warnings":warnings, "recovered_interrupted_jobs": recovered_jobs}
 
 
 @app.post("/api/v1/reuse-check")
 @app.post("/api/reuse-check")
 def reuse_check(payload: ReuseRequest, request: Request) -> dict[str, Any]:
     actor = require_reuse_access(request)
-    matches = rank(payload.prompt, payload.tags, store().generations())
+    candidates = [row for row in store().generations() if row.get("modality", "image") == payload.modality]
+    matches = rank(payload.prompt, payload.tags, candidates)
     intent = clean_intent(payload.intent.model_dump())
     recommendation, blockers, reason = decision(matches, intent)
     if matches:
@@ -449,6 +460,8 @@ def capture_completed_media(payload: CaptureRequest, request: Request) -> dict[s
 @app.post("/api/v1/jobs/generate", status_code=status.HTTP_202_ACCEPTED)
 def enqueue_generation(payload: GenerateRequest, request: Request) -> dict[str, Any]:
     actor = require_generation_access(request)
+    if payload.modality == "video":
+        require_public_video_quota(request, actor)
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     job = {"job_id": job_id, "status": "queued", "created": now(), "prompt": payload.prompt, "parent_gen_id": payload.parent_gen_id, "actor": actor.label, "request": payload.model_dump()}
     store().save_job(job)
@@ -470,6 +483,8 @@ def retry_generation_job(job_id: str, request: Request) -> dict[str, Any]:
         payload = GenerateRequest.model_validate(previous["request"])
     except ValidationError as exc:
         raise HTTPException(409, "stored job request is no longer valid; create a new generation request") from exc
+    if payload.modality == "video":
+        require_public_video_quota(request, actor)
     retry_id = f"job_{uuid.uuid4().hex[:12]}"
     retry = {"job_id": retry_id, "status": "queued", "created": now(), "prompt": payload.prompt, "parent_gen_id": payload.parent_gen_id, "actor": actor.label, "kind": "retry", "retry_of": job_id, "request": payload.model_dump()}
     store().save_job(retry)
@@ -494,6 +509,8 @@ def generation_job(job_id: str) -> dict[str, Any]:
 @app.post("/api/generate")
 def generate(payload: GenerateRequest, request: Request) -> dict[str, Any]:
     actor = require_generation_access(request)
+    if payload.modality == "video":
+        require_public_video_quota(request, actor)
     try:
         row = RecallPipeline(store()).generate(
             prompt=payload.prompt,
@@ -503,8 +520,11 @@ def generate(payload: GenerateRequest, request: Request) -> dict[str, Any]:
             tags=payload.tags,
             parent_id=payload.parent_gen_id,
             intent=clean_intent(payload.intent.model_dump()),
+            modality=payload.modality,
+            fallback_provider=payload.fallback_provider,
         )
-        event("generate", gen_id=row["gen_id"], actor=actor.label, provider=row["provider"], model=row["model"], cost_usd=row.get("cost_usd"))
+        routing = row.get("genblaze", {}).get("routing", {})
+        event("generate", gen_id=row["gen_id"], actor=actor.label, provider=row["provider"], model=row["model"], modality=row.get("modality", "image"), fallback_used=bool(routing.get("fallback_used")), requested_provider=routing.get("requested_provider"), cost_usd=row.get("cost_usd"))
         return public(row)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
@@ -515,15 +535,16 @@ def generate(payload: GenerateRequest, request: Request) -> dict[str, Any]:
 
 @app.get("/api/v1/library")
 @app.get("/api/library")
-def library(q: str = "", tag: str = "", model: str = "", provider: str = "", limit: int = 48, offset: int = 0) -> dict[str, Any]:
+def library(q: str = "", tag: str = "", model: str = "", provider: str = "", modality: str = "", limit: int = 48, offset: int = 0) -> dict[str, Any]:
     limit = min(max(1, limit), 100)
     offset = max(0, offset)
-    needle, wanted, model_filter, provider_filter = q.casefold().strip(), tag.casefold().strip(), model.casefold().strip(), provider.casefold().strip()
+    needle, wanted, model_filter, provider_filter, modality_filter = q.casefold().strip(), tag.casefold().strip(), model.casefold().strip(), provider.casefold().strip(), modality.casefold().strip()
     rows = store().generations()
     rows = [row for row in rows if not needle or needle in (row.get("prompt", "") + " " + " ".join(row.get("tags", []))).casefold()]
     rows = [row for row in rows if not wanted or wanted in [value.casefold() for value in row.get("tags", [])]]
     rows = [row for row in rows if not model_filter or model_filter in row.get("model", "").casefold()]
     rows = [row for row in rows if not provider_filter or provider_filter == row.get("provider", "").casefold()]
+    rows = [row for row in rows if not modality_filter or modality_filter == row.get("modality", "image").casefold()]
     return {"items": [public(row) for row in rows[offset: offset + limit]], "total": len(rows), "limit": limit, "offset": offset}
 
 
@@ -665,8 +686,10 @@ def rerun_recipe(gen_id: str, request: Request) -> dict[str, Any]:
     actor = require_generation_access(request)
     if original.get("provenance_kind") == "external_capture":
         raise HTTPException(409, "external captures have no Genblaze recipe to re-run; create a tracked fork instead")
+    if original.get("modality", "image") == "video":
+        require_public_video_quota(request, actor)
     payload = GenerateRequest(
-        prompt=original["prompt"], provider=original.get("provider"), model=original["model"], params=original.get("params", {}),
+        prompt=original["prompt"], modality=original.get("modality", "image"), provider=original.get("provider"), model=original["model"], params=original.get("params", {}),
         tags=[*original.get("tags", [])[:19], "rerun"], parent_gen_id=gen_id, intent=IntentProfile(**original.get("intent", {})),
     )
     job_id = f"job_{uuid.uuid4().hex[:12]}"
@@ -745,10 +768,14 @@ def fork(gen_id: str, payload: ForkRequest, request: Request) -> dict[str, Any]:
     actor = require_generation_access(request)
     try:
         parent_provider = parent.get("provider", "").casefold()
-        provider_name = payload.provider or (parent_provider if config.provider_is_configured(parent_provider) else config.default_generation_provider)
-        model_name = payload.model or (parent.get("model") if provider_name == parent_provider else None)
-        row = RecallPipeline(store()).generate(prompt=payload.prompt, provider=provider_name, model=model_name, params={**parent.get("params", {}), **payload.params}, tags=parent.get("tags", []), parent_id=gen_id, intent=clean_intent(payload.intent.model_dump()) or parent.get("intent", {}))
-        event("fork", gen_id=row["gen_id"], actor=actor.label, parent_gen_id=gen_id, cost_usd=row.get("cost_usd"))
+        modality = payload.modality or parent.get("modality", "image")
+        if modality == "video":
+            require_public_video_quota(request, actor)
+        provider_name = payload.provider or (parent_provider if config.provider_is_configured(parent_provider, modality) else ("gmi" if modality == "video" else config.default_generation_provider))
+        model_name = payload.model or (parent.get("model") if provider_name == parent_provider and modality == parent.get("modality", "image") else None)
+        row = RecallPipeline(store()).generate(prompt=payload.prompt, provider=provider_name, model=model_name, params={**parent.get("params", {}), **payload.params}, tags=parent.get("tags", []), parent_id=gen_id, intent=clean_intent(payload.intent.model_dump()) or parent.get("intent", {}), modality=modality, fallback_provider=payload.fallback_provider)
+        routing = row.get("genblaze", {}).get("routing", {})
+        event("fork", gen_id=row["gen_id"], actor=actor.label, parent_gen_id=gen_id, modality=row.get("modality", "image"), fallback_used=bool(routing.get("fallback_used")), cost_usd=row.get("cost_usd"))
         return public(row)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -878,6 +905,71 @@ def savings() -> dict[str, Any]:
     return _savings_snapshot()
 
 
+def _safe_csv_cell(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    dangerous = bool(value) and (value[0] in "=+-@" or ord(value[0]) < 32)
+    return "'" + value if dangerous else value
+
+
+@app.get("/api/v1/exports/savings.csv")
+def savings_csv() -> Response:
+    """Export a prompt-free, spreadsheet-safe economics and governance ledger."""
+    rows = store().generations()
+    events = store().events()
+    reproductions: dict[str, list[dict[str, Any]]] = {}
+    for item in events:
+        if item.get("kind") == "reproduce" and item.get("gen_id"):
+            reproductions.setdefault(item["gen_id"], []).append(item)
+    fields = [
+        "generation_id", "created", "modality", "provider", "model",
+        "generation_cost_usd", "price_status", "exact_downloads",
+        "avoided_cost_usd", "savings_multiple", "parent_generation_id",
+        "approved", "object_lock_status", "asset_sha256",
+        "manifest_verified", "native_b2_sink", "fallback_used",
+        "requested_provider",
+    ]
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=fields, lineterminator=chr(10))
+    writer.writeheader()
+    for row in rows:
+        downloads = reproductions.get(row.get("gen_id", ""), [])
+        avoided = sum(float(item["avoided_cost_usd"]) for item in downloads if item.get("avoided_cost_usd") is not None)
+        cost = row.get("cost_usd")
+        genblaze = row.get("genblaze") or {}
+        routing = genblaze.get("routing") or {}
+        approval = row.get("approval") or {}
+        record = {
+            "generation_id": row.get("gen_id", ""),
+            "created": row.get("created", ""),
+            "modality": row.get("modality", "image"),
+            "provider": row.get("provider", ""),
+            "model": row.get("model", ""),
+            "generation_cost_usd": "" if cost is None else round(float(cost), 6),
+            "price_status": "priced" if cost is not None else "unpriced",
+            "exact_downloads": len(downloads),
+            "avoided_cost_usd": round(avoided, 6),
+            "savings_multiple": round(avoided / float(cost), 2) if cost not in {None, 0} else "",
+            "parent_generation_id": row.get("parent_gen_id") or "",
+            "approved": bool(row.get("approval")),
+            "object_lock_status": approval.get("status", "not_approved"),
+            "asset_sha256": (row.get("asset") or {}).get("sha256", ""),
+            "manifest_verified": bool(genblaze.get("manifest_verified")),
+            "native_b2_sink": bool(genblaze.get("native_b2_sink")),
+            "fallback_used": bool(routing.get("fallback_used")),
+            "requested_provider": routing.get("requested_provider") or row.get("provider", ""),
+        }
+        writer.writerow({key: _safe_csv_cell(value) for key, value in record.items()})
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": 'attachment; filename="recall-savings-ledger.csv"',
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
 @app.get("/api/v1/integration")
 def integration() -> dict[str, Any]:
     return {
@@ -888,8 +980,19 @@ def integration() -> dict[str, Any]:
         "generation": {
             "default_provider": config.default_generation_provider,
             "native_b2_sink": store().mode == "b2" and config.RECALL_NATIVE_SINK,
+            "modalities": ["image", *(["video"] if config.provider_is_configured("gmi", "video") else [])],
             "providers": [
-                {"id": provider, "label": "Google Gemini" if provider == "google" else "GMI Cloud", "default_model": config.default_model_for(provider), "configured": True}
+                {
+                    "id": provider,
+                    "label": "Google Gemini" if provider == "google" else "GMI Cloud",
+                    "modalities": ["image", *(["video"] if provider == "gmi" else [])],
+                    "default_model": config.default_model_for(provider, "image"),
+                    "default_models": {
+                        "image": config.default_model_for(provider, "image"),
+                        **({"video": config.default_model_for(provider, "video")} if provider == "gmi" else {}),
+                    },
+                    "configured": True,
+                }
                 for provider in config.available_generation_providers
             ],
         },
@@ -903,6 +1006,7 @@ def integration() -> dict[str, Any]:
             "fork": "POST /api/v1/gen/{id}/fork",
             "verify": "GET /api/v1/gen/{id}/verify",
             "approve": "POST /api/v1/gen/{id}/approve",
+            "savings_csv": "GET /api/v1/exports/savings.csv",
         },
     }
 

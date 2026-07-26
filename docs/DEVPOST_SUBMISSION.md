@@ -39,10 +39,13 @@ Recall turns each generation into a durable, inspectable B2 record:
 - Proof shows the stored B2 SHA-256, manifest presence, lineage, and per-asset economics.
 - Approve and lock creates a B2 Object Lock-protected final asset.
 - A job API keeps slow provider generation asynchronous and observable.
+- Native image and video routes share the same memory, lineage, manifest, and B2 archive.
+- Automatic image fallback can continue from Google to GMI or GMI to Google, while preserving both attempts as routing evidence.
+- A prompt-free CSV gives finance and operations a safe export of spend, savings, lineage, fallback, verification, and Object Lock status.
 
 ## How we built it
 
-FastAPI serves a lightweight responsive web workspace and versioned API. A Genblaze Pipeline orchestrates Google Gemini and GMI Cloud image providers, captures canonical provenance metadata, records cross-provider parent-run lineage, and applies provider-specific fallback and cost configuration. Recall stores the image bytes, raw Genblaze manifest, readable recipe, catalog record, event ledger, embedding index, and approved Object Lock copy in Backblaze B2.
+FastAPI serves a lightweight responsive web workspace and versioned API. Genblaze Pipelines orchestrate Google Gemini and GMI Cloud image providers plus the official GMI Cloud video provider, capture canonical provenance metadata, record cross-provider parent-run lineage, and apply provider-specific fallback and cost configuration. Recall stores media bytes, raw Genblaze manifests, readable recipes, catalog records, event and savings ledgers, the embedding index, and approved Object Lock copies in Backblaze B2.
 
 Google Gemini embeddings power semantic recall. They remain an internal B2 catalog index and are never exposed through the public API. Railway hosts the application; B2 remains the durable system of record.
 
@@ -56,6 +59,7 @@ Google Gemini embeddings power semantic recall. They remain an internal B2 catal
 
 - Google Gemini: `gemini-3.1-flash-image` for image generation
 - GMI Cloud: `gpt-image-2-generate` for image generation and verified cross-provider lineage
+- GMI Cloud through Genblaze: `seedance-2-0-260128` for short video generation
 - Google Gemini: `gemini-embedding-001` for optional semantic matching
 - Genblaze SDK for orchestration and provenance
 - Backblaze B2 for durable storage and Object Lock
@@ -90,7 +94,7 @@ Production-minded generative media needs more than a provider call. The valuable
 
 ## What's next
 
-Larger semantic indexes, more provider adapters, multimodal video and audio workflows, and team-level policy analytics across private workspaces.
+Larger semantic indexes, additional video providers, native audio generation, and team-level policy analytics across private workspaces.
 
 ## Repository access
 

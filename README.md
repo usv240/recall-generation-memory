@@ -98,10 +98,13 @@ Backblaze B2 is the system of record. Genblaze is the generation and provenance 
 | Intent Firewall | Similar does not automatically mean safe | Brand, campaign, format, license, and language conflicts block reuse |
 | Exact download | Get the approved original, not a new approximation | Recall streams the stored B2 bytes with a useful filename; Proof re-hashes the asset with SHA-256 |
 | Tracked forks | Change only what needs to change | A new Genblaze run keeps its parent generation and parent run lineage |
+| Native image and video generation | Use memory for both fast images and costly clips | Google and GMI handle images; Genblaze's GMI video provider creates short clips that are archived directly to B2 |
+| Automatic provider fallback | Finish safely when an image route fails | Recall tries the selected second provider and stores requested route, failure evidence, attempted providers, and the successful route |
 | Honest recipe replay | Rerun saved settings without promising identical output | Replay is labeled as paid and best effort |
 | Proof records | Inspect what happened and verify it | B2 hash, manifest verification, lineage, cost, and storage evidence are exposed together |
 | Approval and retention | Protect a final creative decision | Approved media is copied to a B2 Object Lock retention path |
 | Savings ledger | See whether reuse is producing value | Avoided cost uses the original recorded cost and increments only on explicit reuse |
+| CSV economics export | Share evidence with finance or operations | A prompt-free, spreadsheet-safe ledger includes spend, reuse, savings, lineage, fallback, verification, and Object Lock status |
 | Recall Ledger | Prove what Recall checked before generation | Chained receipts contain policy evidence and salted prompt commitments |
 | Feedback calibration | Correct a bad suggestion | Wrong-match feedback blocks the same request and candidate pair in that workspace |
 | Private Vaults | Keep teams and archives isolated | Each workspace receives a B2 prefix and a one-time workspace credential |
@@ -160,8 +163,8 @@ The storage adapter paginates B2 listings, scopes workspace keys under fixed pre
 Genblaze is responsible for more than calling a model:
 
 - a Genblaze **Pipeline** orchestrates generation
-- provider adapters connect Google Gemini and GMI Cloud image generation
-- provider-specific fallback models can be configured without crossing route or price boundaries
+- provider adapters connect Google Gemini and GMI Cloud image generation plus GMI Cloud video generation
+- provider-specific fallback models remain within a route, while Recall can visibly continue an image job across Google and GMI when the selected route fails
 - retries are recorded as part of the job path
 - the raw Genblaze manifest is stored beside every orchestrated asset
 - Recall fills output hash, byte size, and media type into the manifest when needed
@@ -169,7 +172,7 @@ Genblaze is responsible for more than calling a model:
 - parent run identifiers preserve lineage for forks and reruns
 - the native Genblaze ObjectStorageSink path is verified end to end against private B2, with authenticated retrieval and workspace-scoped prefixes
 
-The live deployment uses Google **gemini-3.1-flash-image** and GMI Cloud **gpt-image-2-generate**. A verified GMI child of a Google asset proves cross-provider lineage, native B2 sink persistence, and canonical manifest verification. Optional semantic search uses **gemini-embedding-001**. Provider and model names are stored with each generation instead of being hidden behind generic labels.
+The live deployment uses Google **gemini-3.1-flash-image**, GMI Cloud **gpt-image-2-generate**, and GMI Cloud **seedance-2-0-260128** for short video. Optional semantic search uses **gemini-embedding-001**. Provider and model names are stored with each generation instead of being hidden behind generic labels.
 
 ## Recall Relay: use your own model and keep the memory
 
@@ -300,14 +303,16 @@ GOOGLE_API_KEY=your-google-api-key
 GOOGLE_MODEL_IMAGE=gemini-3.1-flash-image
 GMI_API_KEY=your-gmi-api-key
 GMI_MODEL_IMAGE=gpt-image-2-generate
+GMI_MODEL_VIDEO=seedance-2-0-260128
 RECALL_MODEL=gemini-3.1-flash-image
 RECALL_MODEL_COST_USD=0.067
 RECALL_GOOGLE_MODEL_COST_USD=0.067
-RECALL_GMI_MODEL_COST_USD=your-effective-gmi-output-cost
+RECALL_GMI_MODEL_COST_USD=your-effective-gmi-image-cost
+RECALL_GMI_VIDEO_COST_USD=your-effective-gmi-video-cost
 RECALL_NATIVE_SINK=true
 ~~~
 
-Configure either provider or both. The workspace shows only routes with credentials, and every generation, rerun, or fork records the provider and model it actually used. Set the provider-specific cost variables to the effective price of each output tier. **RECALL_MODEL_COST_USD** remains the backward-compatible price for the default provider. Recall never borrows one provider's price for another. If no trustworthy cost is available, the output remains unpriced and does not create fictional savings.
+Configure either provider or both. Images can use Google or GMI and can continue on the other route after a recorded failure. Built-in video uses the official Genblaze GMI video adapter with a short 3-second, 480p default. The workspace shows only compatible routes, and every generation, fallback, rerun, or fork records the provider and model it actually used. Set the provider-specific cost variables to the effective price of each output tier. **RECALL_MODEL_COST_USD** remains the backward-compatible price for the default provider. Recall never borrows one provider's price for another. If no trustworthy cost is available, the output remains unpriced and does not create fictional savings.
 
 ### 3. Production controls
 
@@ -370,7 +375,28 @@ curl -X POST "$RECALL_URL/api/v1/jobs/generate" \
   }'
 ~~~
 
-Poll the returned **poll** URL until the job is **completed** or **failed**.
+Poll the returned **poll** URL until the job is **completed** or **failed**. For image resilience, send **fallback_provider: gmi** with a Google request, or **fallback_provider: google** with a GMI request. The stored routing record shows both attempts if fallback fires.
+
+### Queue a short video
+
+~~~bash
+curl -X POST "$RECALL_URL/api/v1/jobs/generate"   -H "Content-Type: application/json"   -H "X-Recall-Key: $RECALL_API_KEY"   -d '{
+    "prompt": "A slow camera orbit around a cobalt product on an ivory table",
+    "modality": "video",
+    "provider": "gmi",
+    "tags": ["video", "launch"]
+  }'
+~~~
+
+Recall searches only existing videos before this call. A miss uses the configured GMI video model with a 3-second, 480p default, then stores the video, Genblaze manifest, hash, recipe, lineage, and economics in B2.
+
+### Export the savings ledger
+
+~~~bash
+curl -OJ "$RECALL_URL/api/v1/exports/savings.csv"
+~~~
+
+The CSV excludes prompts and embedding vectors. It is spreadsheet-safe and includes cost, exact downloads, avoided cost, lineage, fallback, manifest verification, native B2 sink use, and Object Lock status.
 
 ### Download and account for an exact reuse
 
@@ -449,7 +475,7 @@ railway.toml       Railway health-check deployment configuration
 
 ## Honest boundaries
 
-- Built-in generation currently targets images through Google Gemini and GMI Cloud. Relay capture supports selected image, video, and audio formats.
+- Built-in generation supports images through Google Gemini and GMI Cloud plus short video through the official Genblaze GMI Cloud adapter. Relay capture also supports selected image, video, and audio formats.
 - Exact download is bit-for-bit because it serves the stored B2 object. Provider replay is a new paid run and may differ.
 - External captures preserve provider, model, caller-reported cost, and byte integrity, but are not represented as Genblaze-generated runs.
 - Recall Ledger proves canonical receipt integrity and chain continuity. It does not claim third-party identity signatures or full C2PA compliance.
@@ -469,9 +495,9 @@ Recall directly addresses all four judging dimensions:
 | Judge dimension | Recall evidence |
 | --- | --- |
 | Real-world utility | Prevents redundant paid generations and retrieves approved originals across tools |
-| Production readiness | Live deployment, health and readiness checks, quotas, jobs, retries, private workspaces, tests, SDK, and documented security controls |
-| B2 storage and orchestration | Assets, manifests, catalog, jobs, receipts, events, evidence, exact delivery, workspace isolation, and Object Lock finals |
-| Genblaze use | Pipeline orchestration, provider abstraction, fallback configuration, canonical manifests, verification, retries, and lineage |
+| Production readiness | Live deployment, health and readiness checks, quotas, jobs, retries, private workspaces, prompt-free CSV economics export, tests, SDK, and documented security controls |
+| B2 storage and orchestration | Image and video assets, manifests, catalog, jobs, receipts, events, evidence, exact delivery, workspace isolation, and Object Lock finals |
+| Genblaze use | Native image and video pipelines, provider abstraction, visible cross-provider fallback, canonical manifests, verification, retries, and lineage |
 
 Recall is substantially different from Trueprint, the team's other submission. Recall acts before generation to decide whether a team should reuse, fork, or pay for new media. Trueprint acts after media exists to evaluate authenticity and claims. Their users, workflows, outcomes, and success metrics are different.
 
