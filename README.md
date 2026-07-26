@@ -176,6 +176,8 @@ The live deployment uses Google **gemini-3.1-flash-image**, GMI Cloud **gpt-imag
 
 The public library also contains a real 5-second Seedance video proof: **gen_54827c05a1de**, 794,960 bytes, B2 SHA-256 **8c5262c480450571d9a9b8f129faa50992a6d7258a1d0ec54fc8e9eca1040200**, and a canonically verified Genblaze manifest. GMI did not return a trustworthy price for that run, so Recall leaves it unpriced.
 
+Its deployed child, **gen_c78ab32fd686**, adds a second verified video, native Genblaze B2 sink persistence, and parent-run lineage. The public fallback proof, **gen_c63811818a7d**, records an unavailable Google route, the sanitized failure, both attempted providers, GMI as the successful route, native B2 sink persistence, and a verified manifest. Both GMI outputs remain honestly unpriced because the provider did not report a trustworthy cost.
+
 ## Recall Relay: use your own model and keep the memory
 
 The [recall-relay](https://pypi.org/project/recall-relay/) package makes Recall useful outside the hosted workspace.
