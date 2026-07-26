@@ -524,7 +524,7 @@ Recall directly addresses all four judging dimensions:
 
 Recall is substantially different from Trueprint, the team's other submission. Recall acts before generation to decide whether a team should reuse, fork, or pay for new media. Trueprint acts after media exists to evaluate authenticity and claims. Their users, workflows, outcomes, and success metrics are different.
 
-For the final submission and three-minute walkthrough, see [docs/LAUNCH.md](docs/LAUNCH.md), [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md), and [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md).
+For the final submission and three-minute walkthrough, see [docs/LAUNCH.md](docs/LAUNCH.md) and [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md).
 
 ## License
 
