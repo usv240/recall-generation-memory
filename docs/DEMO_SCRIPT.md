@@ -66,16 +66,16 @@ Keep **MEDIA TYPE** on **Image**. Click **Check library, then generate**.
 Pause for two seconds when the match panel appears. Point to:
 
 - **Intent Firewall passed**
-- the semantic match percentage
-- **GENERATE AGAIN**
 - **EXACT B2 DOWNLOAD: $0.00 model cost**
 - **Paid model call paused**
+
+Let the semantic percentage and **GENERATE AGAIN** comparison remain visible without a dedicated cursor stop.
 
 Before speaking, move deliberately across **Download exact original**, **Wrong match**, and **Generate anyway**, with a short pause on each choice. Then rest the pointer in empty space while delivering the narration.
 
 ### Say
 
-"This is a paraphrase, not the original prompt. Recall finds the cobalt asset, checks its intent, and pauses the provider call. Maya can retrieve it, reject it, or deliberately generate something new. She stays in control."
+"This is a paraphrase, not the original prompt. Recall finds the cobalt asset, verifies that its intent is safe, and pauses the provider call. Maya can retrieve it, reject it, or deliberately generate something new. She stays in control."
 
 ### Do
 
@@ -135,7 +135,7 @@ Point to **Approved and retention locked** and pause briefly. Clear the search. 
 
 ### Say
 
-"Approved work becomes an Object Lock-protected copy in B2. This prompt-free CSV exports spend, reuse, savings, lineage, fallback, verification, and retention. Recall also offers private workspaces, durable jobs, an API, and the published recall-relay package."
+"Approved work becomes an Object Lock-protected copy in B2. This prompt-free CSV exports spend, reuse, savings, lineage, fallback, verification, and retention. Recall also supports private workspaces, durable jobs, an API, and a published Relay package."
 
 ## 2:29 to 2:48 | Close on the product thesis
 
