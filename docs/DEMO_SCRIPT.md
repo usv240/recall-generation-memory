@@ -1,50 +1,173 @@
-# Recall: 2:45 demo recording script
+# Recall: prize demo script
 
-## 0:00 - 0:20: the expensive failure
+Target length: 2 minutes 52 seconds. The rules require a video shorter than three minutes, and judges are not required to watch beyond that point.
 
-"This approved image already cost the team once. If a teammate cannot find it next week, another model call costs again and may return different pixels. A folder only helps if they already know what to look for. Recall checks shared generation memory before the provider runs."
+## The story
 
-Show Model Spend, Saved by Recall, Paid Calls Avoided, and the real Savings / Spend ratio. The ratio is calculated from actual ledger events, not a projection. Then point to one approved asset.
+Maya is a creative lead preparing a product launch. Her team already generated and approved useful campaign media, but it is scattered across tools and providers. Instead of remembering a filename, Maya describes what she needs. Recall checks shared generation memory before another provider can charge the team.
 
-## 0:20 - 0:45: more than a DAM
+This one story demonstrates all four equally weighted judging criteria: real-world utility, production readiness, meaningful B2 orchestration, and meaningful Genblaze use.
 
-"Recall connects each image or video to its prompt, provider recipe, intent, lineage, integrity hash, approval, and reuse history across tools. This is active spend control before generation, not a gallery after generation. Video makes the avoided wait and cost especially valuable."
+## Before recording
 
-Open the asset and click **Proof**.
+1. Record at 1440p or 1080p with the browser at 100 percent zoom.
+2. Use dark mode, hide the bookmarks bar, close unrelated tabs, and disable notifications.
+3. Open the live landing page and allow the library previews to finish loading.
+4. Open the workspace once in a second tab so its cards and video are already loaded.
+5. Confirm the landing metrics show numbers instead of loading placeholders.
+6. Confirm these public proof assets are visible:
+   - reusable cobalt parent: gen_4c3dfb56bff6
+   - emerald tracked child: gen_805ca86e2736
+   - Google to GMI fallback: gen_c63811818a7d
+   - GMI video parent: gen_54827c05a1de
+   - native-sink video child: gen_c78ab32fd686
+   - approved and retention-locked final: gen_f7d28afbfa60
+7. Do not rehearse the final exact download repeatedly against production. Practice until that click, then record the complete action once.
+8. Do not use copyrighted music. Clear narration and the live product are enough.
 
-## 0:45 - 1:08: exact retrieval versus replay
+## 0:00 to 0:18 | Open with the human problem
 
-"The stored B2 bytes re-hash to this SHA-256, and the Genblaze manifest is beside them. Retrieve serves these exact bytes with no new model call. Recipe replay is separate, paid, and best effort because a nondeterministic model may produce something different."
+### On screen
 
-Point to the verified B2 hash, Genblaze manifest, lineage, **Download exact original**, and **Paid recipe replay** controls.
+Start on the landing page. Keep the headline, live spend, live savings, library count, and media previews visible.
 
-## 1:08 - 1:43: the memorable savings moment
+### Do
 
-"Now a teammate asks for the same campaign asset in different words. Before Genblaze can call the provider, Reuse Gate finds the existing work and the Intent Firewall checks that brand, campaign, format, license, and language still fit."
+Move the pointer slowly across **Generate once. Reuse forever.**, then the live savings metrics. Click **Start with your library** at the end of the narration.
 
-Enter a related prompt. Pause on the live comparison:
+### Say
 
-- Generate again: the candidate's recorded model cost
-- Exact B2 retrieval: `$0.00` new model cost
+"Meet Maya, a creative lead launching a campaign today. Her team made the right visual last week, but its file, prompt, and provider settings are scattered across tools. Generate again and the team pays twice for different pixels. Recall changes that default."
 
-"The paid call is paused. I choose the exact original. No provider runs, Recall records the decision receipt, and the avoided cost increases."
+## 0:18 to 0:38 | Show the simple workflow
 
-Click **Download exact original** and show Saved by Recall, Paid Calls Avoided, and Savings / Spend update. Keep any team-scale projection verbally separate from these live values.
+### On screen
 
-## 1:43 - 2:08: change only when the need changed
+The workspace should show the three steps, the request box, live metrics, and the cross-tool library.
 
-"If the requirement truly changed, Recall does not force the old asset. I fork the known-good recipe, make one deliberate edit, and Genblaze records a new paid child run linked to its parent."
+### Do
 
-Show an existing fork and its lineage. Avoid spending demo time waiting for a fresh generation.
+Point to **Describe what you need**, **Recall checks first**, and **You stay in control**. Then click inside **WHAT DO YOU NEED?**.
 
-## 2:08 - 2:28: production proof
+### Say
 
-"Approved work can be copied to an Object Lock-protected B2 final. This generation also proves automatic provider fallback, and the prompt-free CSV exports spend, savings, lineage, verification, and lock status for finance. Recall also exposes receipts, private workspaces, an API, and the published Relay package."
+"Maya describes the need in everyday language. Before any paid provider runs, Recall searches shared memory and checks whether an existing match is safe to reuse."
 
-Show the approved state, a card with the automatic fallback badge, the savings CSV button, and the package name briefly.
+## 0:38 to 1:08 | Create the memorable reuse moment
 
-## 2:28 - 2:45: close on the unique value
+### Do
 
-"Backblaze B2 is the durable economic memory. Genblaze is the reproducible provider route. Recall proves what the team did not need to generate. Do not pay twice and get a different result."
+Paste this tested paraphrase into **WHAT DO YOU NEED?**:
 
-End on the live savings comparison and `Generate once. Reuse forever.`
+    premium editorial image of a cobalt glass square on warm paper for Recall
+
+Keep **MEDIA TYPE** on **Image**. Click **Check library, then generate**.
+
+Pause for two seconds when the match panel appears. Point to:
+
+- **Intent Firewall passed**
+- the semantic match percentage
+- **GENERATE AGAIN**
+- **EXACT B2 DOWNLOAD: $0.00 model cost**
+- **Paid model call paused**
+
+### Say
+
+"This is a paraphrase, not the original prompt. Recall finds the cobalt asset, checks its intent, and pauses the provider call. Maya can retrieve it, reject it, or deliberately generate something new. She stays in control."
+
+### Do
+
+Click **Download exact original**. Let the browser download complete. Point to the confirmation message, then briefly point to **Saved by Recall** and **Paid calls avoided** after they update.
+
+### Say
+
+"I choose the original. Recall downloads the exact stored B2 bytes. No model runs, and the avoided cost is recorded."
+
+## 1:08 to 1:38 | Prove it is more than a folder
+
+### Do
+
+In **Search your media memory**, enter:
+
+    luminous cobalt glass tile
+
+On the matching card, click **Proof**. Point to:
+
+- **B2 ASSET HASH: Verified**
+- **GENBLAZE MANIFEST: Canonical hash verified**
+- **AVOIDED COST**
+- the lineage nodes
+- **Paid recipe replay**
+
+Do not click **Paid recipe replay**.
+
+### Say
+
+"A folder stores a file. Recall connects the B2 original to its request, SHA-256 fingerprint, Genblaze manifest, cost, and family tree. Exact download is bit-for-bit. Recipe replay is separately labeled as paid and may differ. The lineage records its deliberate child variation."
+
+## 1:38 to 2:10 | Show real multimodal and provider orchestration
+
+### Do
+
+Scroll back to the library and clear the search. The newest proof cards appear first.
+
+1. Point to the first card, **A premium cobalt and ivory Recall launch card...**.
+2. Hold on **Automatic fallback: google to gmi** and the GMI model label.
+3. Point to the next card, the short video beginning **A slow cinematic camera tilt...**.
+4. Play the video for two or three seconds.
+5. Click **Proof** on that video and point to its parent and current lineage nodes plus the verified manifest.
+
+### Say
+
+"Recall is provider-neutral and multimodal. This image began on Google, failed safely, continued on GMI, and preserved both attempts. This real Seedance video followed the same Genblaze-to-B2 path. Its child preserves parent lineage, a verified manifest, and the native B2 sink record. Media types remain safely isolated."
+
+## 2:10 to 2:34 | Show production workflow
+
+### Do
+
+Return to the library. Search for:
+
+    final audit asset
+
+Point to **Approved and retention locked**. Clear the search. Click **Export savings CSV** and let the confirmation appear.
+
+### Say
+
+"Approved work becomes a B2 Object Lock-protected final. This prompt-free CSV exports spend, reuse, savings, lineage, fallback, verification, and retention. Recall also offers private workspaces, durable jobs, an API, and the published recall-relay package."
+
+## 2:34 to 2:52 | Close on the product thesis
+
+### Do
+
+Press **Home** to return to the workspace headline and live metrics. End with the library and savings visible. Stop recording immediately after the final sentence.
+
+### Say
+
+"B2 is the durable economic memory. Genblaze orchestrates models and media. Recall decides before the next charge. It does not just remember what a team generated. It proves what the team did not need to generate. Generate once. Reuse forever."
+
+## Recording direction
+
+- Speak at a calm conversational pace of about 135 words per minute.
+- Pause after the zero-dollar comparison. That is the main product moment.
+- Keep the pointer still while speaking. Move it only when directing attention.
+- Never scroll while explaining an important idea.
+- Let real UI labels carry technical detail. Do not read hashes or generation IDs aloud.
+- Do not wait for a new image or video generation during the recording. The existing public artifacts are real and already prove generation, fallback, storage, manifests, and lineage.
+- Use one continuous product story. Avoid phrases such as "next feature" or "we also built."
+
+## Judge coverage check
+
+| Criterion | What the recording proves |
+| --- | --- |
+| Real-world utility | A creator describes an existing need differently, Recall stops a paid call, and the exact original is retrieved |
+| Production readiness | Human choice, intent safety, exact download, approval, Object Lock, durable proof, economics export, private workspaces, API, and Relay |
+| B2 storage and orchestration | Exact image and video bytes, verified hashes, manifests, lineage, decision records, savings events, retrieval, and protected finals |
+| Genblaze use | Google and GMI routes, image and video pipelines, real cross-provider fallback, canonical manifests, native B2 sink, and parent-run lineage |
+
+## Claims to keep exact
+
+- Say **exact download**, not deterministic regeneration.
+- Say **paid recipe replay may differ**, not guaranteed reproduction.
+- Say **real savings recorded by Recall**, not projected enterprise savings.
+- Say **provider-reported or configured cost** only when a trustworthy price exists.
+- Say **Object Lock-protected copy** only for an asset that visibly shows the locked state.

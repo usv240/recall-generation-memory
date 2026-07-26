@@ -27,7 +27,9 @@ def rank(prompt: str, tags: list[str], rows: list[dict[str, Any]], limit: int = 
         lexical = len(query_tokens & asset_tokens) / len(union) if union else 0.0
         tag_overlap = len(tag_tokens & {normalize(tag) for tag in row.get("tags", [])})
         exact = bool(query and query == stored)
-        semantic = cosine(query_embedding, row.get("semantic", {}).get("embedding"))
+        semantic_record = row.get("semantic")
+        stored_embedding = semantic_record.get("embedding") if isinstance(semantic_record, dict) else None
+        semantic = cosine(query_embedding, stored_embedding)
         text_score = min(0.92, lexical + min(0.15, tag_overlap * 0.08))
         score = 1.0 if exact else max(text_score, semantic or 0.0)
         if exact or score >= 0.28:

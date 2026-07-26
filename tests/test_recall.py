@@ -560,6 +560,18 @@ def test_exact_reuse_match_skips_external_embedding_call(monkeypatch):
     assert result[0]["match"] == "exact"
     assert result[0]["semantic_score"] is None
 
+def test_reuse_rank_tolerates_catalog_rows_without_embeddings(monkeypatch):
+    import backend.app.reuse as reuse_module
+    monkeypatch.setattr(reuse_module, "embed", lambda prompt: [1.0, 0.0])
+    rows = [
+        {"gen_id":"gen_unembedded", "prompt":"cobalt launch card for campaign", "created":"2026-01-02", "tags":[], "semantic":None},
+        {"gen_id":"gen_embedded", "prompt":"unrelated forest study", "created":"2026-01-01", "tags":[], "semantic":{"embedding":[0.0, 1.0]}},
+    ]
+    result = reuse_module.rank("cobalt launch campaign card", [], rows)
+    assert result[0]["generation"]["gen_id"] == "gen_unembedded"
+    assert result[0]["match"] == "text-similar"
+    assert result[0]["semantic_score"] is None
+
 def test_full_generation_queue_rejects_without_leaving_stale_job(monkeypatch):
     class NoSlots:
         def acquire(self, blocking=False): return False
