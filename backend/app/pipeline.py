@@ -66,7 +66,7 @@ class RecallPipeline:
             raise RuntimeError(f"{normalized_fallback} {modality_name} fallback is not configured")
         effective_params=dict(params)
         if modality_name=="video":
-            effective_params.setdefault("duration",3)
+            effective_params.setdefault("duration",5)
             effective_params.setdefault("resolution","480p")
             effective_params.setdefault("aspect_ratio","16:9")
         gen_id=f"gen_{uuid.uuid4().hex[:12]}"; parent_run_id=None
@@ -166,10 +166,9 @@ class RecallPipeline:
         for attempt in range(1,config.RECALL_GENERATION_RETRIES+1):
             try:
                 import genblaze as g
-                from .providers import RecallImageProvider,RecallGoogleImageProvider
+                from .providers import RecallImageProvider,RecallGoogleImageProvider,RecallVideoProvider
                 if modality=="video":
-                    from genblaze_gmicloud import GMICloudVideoProvider
-                    provider=GMICloudVideoProvider(api_key=config.GMI_API_KEY,base_url=config.GMI_IMAGE_BASE_URL)
+                    provider=RecallVideoProvider(api_key=config.GMI_API_KEY,base_url=config.GMI_IMAGE_BASE_URL)
                     genblaze_modality=g.Modality.VIDEO
                 elif provider_name=="google":
                     provider=RecallGoogleImageProvider(api_key=config.GOOGLE_API_KEY)

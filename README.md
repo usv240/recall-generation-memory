@@ -174,6 +174,8 @@ Genblaze is responsible for more than calling a model:
 
 The live deployment uses Google **gemini-3.1-flash-image**, GMI Cloud **gpt-image-2-generate**, and GMI Cloud **seedance-2-0-260128** for short video. Optional semantic search uses **gemini-embedding-001**. Provider and model names are stored with each generation instead of being hidden behind generic labels.
 
+The public library also contains a real 5-second Seedance video proof: **gen_54827c05a1de**, 794,960 bytes, B2 SHA-256 **8c5262c480450571d9a9b8f129faa50992a6d7258a1d0ec54fc8e9eca1040200**, and a canonically verified Genblaze manifest. GMI did not return a trustworthy price for that run, so Recall leaves it unpriced.
+
 ## Recall Relay: use your own model and keep the memory
 
 The [recall-relay](https://pypi.org/project/recall-relay/) package makes Recall useful outside the hosted workspace.
@@ -312,7 +314,7 @@ RECALL_GMI_VIDEO_COST_USD=your-effective-gmi-video-cost
 RECALL_NATIVE_SINK=true
 ~~~
 
-Configure either provider or both. Images can use Google or GMI and can continue on the other route after a recorded failure. Built-in video uses the official Genblaze GMI video adapter with a short 3-second, 480p default. The workspace shows only compatible routes, and every generation, fallback, rerun, or fork records the provider and model it actually used. Set the provider-specific cost variables to the effective price of each output tier. **RECALL_MODEL_COST_USD** remains the backward-compatible price for the default provider. Recall never borrows one provider's price for another. If no trustworthy cost is available, the output remains unpriced and does not create fictional savings.
+Configure either provider or both. Images can use Google or GMI and can continue on the other route after a recorded failure. Built-in video uses the official Genblaze GMI video adapter with a short 5-second, 480p default. The workspace shows only compatible routes, and every generation, fallback, rerun, or fork records the provider and model it actually used. Set the provider-specific cost variables to the effective price of each output tier. **RECALL_MODEL_COST_USD** remains the backward-compatible price for the default provider. Recall never borrows one provider's price for another. If no trustworthy cost is available, the output remains unpriced and does not create fictional savings.
 
 ### 3. Production controls
 
@@ -388,7 +390,7 @@ curl -X POST "$RECALL_URL/api/v1/jobs/generate"   -H "Content-Type: application/
   }'
 ~~~
 
-Recall searches only existing videos before this call. A miss uses the configured GMI video model with a 3-second, 480p default, then stores the video, Genblaze manifest, hash, recipe, lineage, and economics in B2.
+Recall searches only existing videos before this call. A miss uses the configured GMI video model with a 5-second, 480p default, then stores the video, Genblaze manifest, hash, recipe, lineage, and economics in B2.
 
 ### Export the savings ledger
 

@@ -9,5 +9,6 @@
 ## Platform decisions
 
 - Genblaze supplies replayable, hash-verified manifests, parent-linked runs, fallback chains, B2/S3 sinks, and a runtime ModelRegistry. Recall persists the full manifest sidecar and exposes a replay recipe; provider prices remain explicitly configured instead of invented. Source: https://github.com/backblaze-labs/genblaze
+- GMI Cloud exposes video models and model-specific schemas through authenticated REST endpoints, then processes generation as asynchronous jobs whose final records contain artifact URLs. Recall uses that lifecycle through Genblaze, reconciles stable parameter names with the live model schema, downloads the completed artifact, and archives it to B2. Source: https://docs.gmicloud.ai/inference-engine/api-reference/video-api-reference
 - B2 Object Lock is an opt-in, irreversible retention mechanism. Recall only attempts lock after the user explicitly approves an asset; production setup needs an Object-Lock-enabled bucket/key with retention permissions. Source: https://www.backblaze.com/docs/cloud-storage-object-lock
 - The hackathon scores real-world utility, production readiness, meaningful B2 orchestration, and meaningful Genblaze use equally. Every remaining feature must strengthen one of these four legs. Source: https://backblaze-generative-media.devpost.com/

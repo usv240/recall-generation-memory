@@ -10,7 +10,7 @@ from __future__ import annotations
 import base64, os, tempfile
 from typing import Any
 import httpx
-from genblaze_gmicloud import GMICloudImageProvider
+from genblaze_gmicloud import GMICloudImageProvider, GMICloudVideoProvider
 from genblaze_core.models.step import Step
 
 # Per-model required payload shape (reverse-engineered from the request queue).
@@ -60,6 +60,34 @@ class RecallImageProvider(GMICloudImageProvider):
         # explicit per-step params win (e.g. size, seed, guidance)
         for k, v in (getattr(step, "params", None) or {}).items():
             payload[k] = v
+        return payload
+
+
+class RecallVideoProvider(GMICloudVideoProvider):
+    """GMI video adapter that reconciles Genblaze names with live model schemas."""
+
+    def prepare_payload(self, step: Step, *, base_params: dict[str, Any] | None = None,
+                        validate_inputs: bool = True) -> dict[str, Any]:
+        payload = super().prepare_payload(
+            step, base_params=base_params, validate_inputs=validate_inputs
+        )
+        model = step.model.casefold()
+        if model.startswith("seedance-"):
+            duration = int(payload.get("duration", 5))
+            if not 4 <= duration <= 15:
+                raise ValueError("Seedance video duration must be between 4 and 15 seconds")
+            payload["duration"] = duration
+            if "aspect_ratio" in payload:
+                payload["ratio"] = payload.pop("aspect_ratio")
+        elif model in {"veo3", "veo3-fast"}:
+            duration = int(payload.pop("duration", 8))
+            if duration not in {4, 6, 8}:
+                raise ValueError("Veo video duration must be 4, 6, or 8 seconds")
+            payload["durationSeconds"] = str(duration)
+            if "aspect_ratio" in payload:
+                payload["aspectRatio"] = payload.pop("aspect_ratio")
+            if "negative_prompt" in payload:
+                payload["negativePrompt"] = payload.pop("negative_prompt")
         return payload
 
 

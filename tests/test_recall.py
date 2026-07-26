@@ -17,6 +17,7 @@ from backend.app.reuse import rank
 from backend.app.storage import RecallStore
 from backend.app.config import config
 from backend.app.pipeline import RecallPipeline, _safe_error
+from backend.app.providers import RecallVideoProvider
 from backend.app.ledger import verify_receipt
 from backend.app.security import limiter
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sdk" / "python"))
@@ -811,7 +812,7 @@ def test_multimodal_generation_and_economics_are_end_to_end(monkeypatch):
     assert row["asset"]["b2_key"].endswith(".mp4")
     assert row["asset"]["content_type"] == "video/mp4"
     assert row["media_fingerprint"] is None
-    assert row["params"] == {"duration":3, "resolution":"480p", "aspect_ratio":"16:9"}
+    assert row["params"] == {"duration":5, "resolution":"480p", "aspect_ratio":"16:9"}
     assert row["genblaze"]["routing"]["fallback_used"] is False
     assert attempts == [("gmi", config.GMI_MODEL_VIDEO, "video", row["params"])]
 
@@ -920,3 +921,21 @@ def test_public_video_generation_has_a_tighter_credit_guard(monkeypatch):
     blocked = client.post("/api/v1/jobs/generate", headers=headers, json=payload)
     assert blocked.status_code == 429
     assert "video limit" in blocked.json()["detail"].casefold()
+
+def test_video_provider_maps_live_seedance_schema():
+    from genblaze_core.models.enums import Modality
+    from genblaze_core.models.step import Step
+
+    provider = RecallVideoProvider(api_key="test-only")
+    step = Step(
+        model="seedance-2-0-260128",
+        provider="gmicloud-video",
+        modality=Modality.VIDEO,
+        prompt="slow product orbit",
+        params={"duration":5, "resolution":"480p", "aspect_ratio":"16:9"},
+    )
+    payload = provider.prepare_payload(step, validate_inputs=False)
+    assert payload["duration"] == 5
+    assert payload["resolution"] == "480p"
+    assert payload["ratio"] == "16:9"
+    assert "aspect_ratio" not in payload
