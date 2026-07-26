@@ -37,7 +37,7 @@ Move the pointer slowly across **Generate once. Reuse forever.**, then the live 
 
 ### Say
 
-"Meet Maya, a creative lead launching a campaign today. Her team made the right visual last week, but its file, prompt, and provider settings are scattered across tools. Generate again and the team pays twice for different pixels. Recall changes that default."
+"Meet Maya. She is launching a campaign today. Her team created the perfect image last week, but nobody can find it. So someone generates it again, pays again, and gets different pixels. Recall stops that before another model is charged."
 
 ## 0:18 to 0:38 | Show the simple workflow
 
@@ -77,11 +77,11 @@ Pause for two seconds when the match panel appears. Point to:
 
 ### Do
 
-Click **Download exact original**. Let the browser download complete. Point to the confirmation message, then briefly point to **Saved by Recall** and **Paid calls avoided** after they update.
+Click **Download exact original**. Move the pointer into empty space and hold for three seconds so judges can absorb the zero-dollar choice and the paused model call. Let the download complete. Point to the confirmation message, then briefly point to **Saved by Recall** and **Paid calls avoided** after they update.
 
 ### Say
 
-"I choose the original. Recall downloads the exact stored B2 bytes. No model runs, and the avoided cost is recorded."
+"I choose the original. Recall recommends. Maya decides. Recall downloads the exact stored B2 bytes. No model runs, and the avoided cost is recorded. The cheapest generation is the one you never have to make."
 
 ## 1:08 to 1:38 | Prove it is more than a folder
 
@@ -103,7 +103,7 @@ Do not click **Paid recipe replay**.
 
 ### Say
 
-"A folder stores a file. Recall connects the B2 original to its request, SHA-256 fingerprint, Genblaze manifest, cost, and family tree. Exact download is bit-for-bit. Recipe replay is separately labeled as paid and may differ. The lineage records its deliberate child variation."
+"Everything behind this asset is preserved: the exact B2 file, its verified fingerprint, how it was generated, what it cost, and every variation that followed. Exact download is bit-for-bit. Replay is separate, paid, and may differ."
 
 ## 1:38 to 2:10 | Show real multimodal and provider orchestration
 
@@ -119,7 +119,7 @@ Scroll back to the library and clear the search. The newest proof cards appear f
 
 ### Say
 
-"Recall is provider-neutral and multimodal. This image began on Google, failed safely, continued on GMI, and preserved both attempts. This real Seedance video followed the same Genblaze-to-B2 path. Its child preserves parent lineage, a verified manifest, and the native B2 sink record. Media types remain safely isolated."
+"Recall is provider-neutral and multimodal. Google could not complete this generation, so Recall continued on GMI, preserved both attempts, and recorded exactly what happened. This real Seedance video followed the same Genblaze-to-B2 path. Its child preserves parent lineage, verified provenance, and native B2 storage. Media types remain safely isolated."
 
 ## 2:10 to 2:34 | Show production workflow
 
@@ -129,7 +129,7 @@ Return to the library. Search for:
 
     final audit asset
 
-Point to **Approved and retention locked**. Clear the search. Click **Export savings CSV** and let the confirmation appear.
+Point to **Approved and retention locked** and pause briefly. Clear the search. Click **Export savings CSV**, move the pointer away, and let the confirmation remain visible for a moment.
 
 ### Say
 
@@ -143,12 +143,12 @@ Press **Home** to return to the workspace headline and live metrics. End with th
 
 ### Say
 
-"B2 is the durable economic memory. Genblaze orchestrates models and media. Recall decides before the next charge. It does not just remember what a team generated. It proves what the team did not need to generate. Generate once. Reuse forever."
+"B2 keeps the durable media and evidence. Genblaze orchestrates models and providers. For Maya, Recall turns another generation into one search and an exact answer. For her company, it is one less model bill. That is Recall. Generate once. Reuse forever."
 
 ## Recording direction
 
 - Speak at a calm conversational pace of about 135 words per minute.
-- Pause after the zero-dollar comparison. That is the main product moment.
+- Use silence after the zero-dollar comparison, B2 verification, Object Lock state, and CSV confirmation. The zero-dollar moment gets the longest pause.
 - Keep the pointer still while speaking. Move it only when directing attention.
 - Never scroll while explaining an important idea.
 - Let real UI labels carry technical detail. Do not read hashes or generation IDs aloud.
