@@ -16,7 +16,7 @@ Open the asset and click **Proof**.
 
 "The stored B2 bytes re-hash to this SHA-256, and the Genblaze manifest is beside them. Retrieve serves these exact bytes with no new model call. Recipe replay is separate, paid, and best effort because a nondeterministic model may produce something different."
 
-Point to the verified B2 hash, Genblaze manifest, lineage, **Retrieve exact original**, and **Paid recipe replay** controls.
+Point to the verified B2 hash, Genblaze manifest, lineage, **Download exact original**, and **Paid recipe replay** controls.
 
 ## 1:08 - 1:43: the memorable savings moment
 
@@ -29,7 +29,7 @@ Enter a related prompt. Pause on the live comparison:
 
 "The paid call is paused. I choose the exact original. No provider runs, Recall records the decision receipt, and the avoided cost increases."
 
-Click **Retrieve exact original** and show Saved by Recall, Paid Calls Avoided, and Savings / Spend update. Keep any team-scale projection verbally separate from these live values.
+Click **Download exact original** and show Saved by Recall, Paid Calls Avoided, and Savings / Spend update. Keep any team-scale projection verbally separate from these live values.
 
 ## 1:43 - 2:08: change only when the need changed
 

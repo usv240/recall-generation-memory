@@ -26,7 +26,7 @@ export RECALL_WORKSPACE_KEY=save-the-one-time-key
 # export RECALL_API_KEY=your-scoped-integration-key
 export GEMINI_API_KEY=your-google-key
 ```
-`n## Use
+## Use
 
 ```bash
 recall-relay doctor

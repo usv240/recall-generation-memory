@@ -15,7 +15,7 @@
 1. Show a prior asset and its real recorded model cost.
 2. Explain why this is not a folder: Recall checks shared cross-tool memory before a provider call and preserves the request, exact bytes, recipe, intent, lineage, integrity, and economics.
 3. Open Proof and show that SHA-256 matches the B2 object and the Genblaze manifest is present.
-4. State the honest split: exact Retrieve returns stored B2 bytes; paid recipe replay may differ.
+4. State the honest split: exact Download returns stored B2 bytes; paid recipe replay may differ.
 5. Type a semantically related need and let Reuse Gate pause the paid action.
 6. Hold on the live comparison between generating again and `$0.00` new model cost for exact retrieval.
 7. Retrieve the original and show Saved by Recall and Paid Calls Avoided increase.

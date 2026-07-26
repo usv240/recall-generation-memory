@@ -34,7 +34,7 @@ Recall does. Its provider-neutral Relay can sit in front of any model callback, 
 Recall turns each generation into a durable, inspectable B2 record:
 
 - Semantic Reuse Gate checks the existing library before a paid generation.
-- Exact Retrieve serves the original B2 object with no model call and records the avoided cost.
+- Exact Download serves the original B2 object with no model call and records the avoided cost.
 - Fork creates a controlled variation linked to its parent Genblaze run.
 - Proof shows the stored B2 SHA-256, manifest presence, lineage, and per-asset economics.
 - Approve and lock creates a B2 Object Lock-protected final asset.

@@ -1,147 +1,475 @@
 # Recall
 
-**Generate once. Reuse forever.** Recall is a provenance-first memory layer for generative media. It preserves every generated asset, its Genblaze recipe, lineage, integrity hash, reuse history, and cost record in Backblaze B2 so teams can retrieve the original instead of paying to re-create it.
+**Generate once. Reuse forever.**
 
-## Live demo
+Recall is a shared memory and spend-control layer for generative media. Before another model runs, Recall checks whether the team already has something that safely fits the request. A good match can be downloaded as the exact original from Backblaze B2 for zero new model cost. A genuinely new request continues through Genblaze and becomes reusable memory for the next person.
 
-- Workspace: `/app`
-- Health: `/api/health`
-- Readiness: `/api/ready`
-- OpenAPI: `/openapi.json`
+Imagine that your team created and approved the perfect campaign image last week. Today, someone describes the same need with different words. The original file, prompt, provider settings, approval, and cost are scattered across tools, so they generate again. The team pays twice and receives different pixels.
 
-The hosted demo allows a small, IP-scoped number of paid generations per hour. Exact B2 retrieval is free and unmetered. Integrations can use `X-Recall-Key` or `Authorization: Bearer <key>` after configuring `RECALL_API_KEYS`.
+Recall changes that default.
 
-## Why Recall is not a folder or DAM
+## Try the live product
 
-A folder stores bytes after someone remembers to save them. A digital asset manager organizes files after they exist. Recall sits before the provider call: its provider-neutral Relay and Reuse Gate search shared history across tools, models, prompts, intent, and lineage before the team pays again. It then keeps the exact original with the recipe, integrity proof, approval context, reuse decision, and avoided cost.
+| Destination | Link |
+| --- | --- |
+| Product overview | [Open Recall](https://recall-production-production.up.railway.app/) |
+| Working application | [Open the Recall workspace](https://recall-production-production.up.railway.app/app) |
+| Service health | [Check health](https://recall-production-production.up.railway.app/api/health) |
+| Production readiness | [Check B2 and provider readiness](https://recall-production-production.up.railway.app/api/ready) |
+| API documentation | [Explore the REST API](https://recall-production-production.up.railway.app/docs) |
+| Python package | [Install recall-relay from PyPI](https://pypi.org/project/recall-relay/) |
 
-1. **Reuse Gate** checks the existing library before sending a paid request.
-2. **Exact retrieval** serves the original B2 bytes; it does not gamble on another model run.
-3. **Forks** produce controlled variations with parent-linked Genblaze lineage.
-4. **Proof records** verify the stored SHA-256 against the actual B2 asset and expose the provenance sidecar.
-5. **Savings accounting** records the real avoided replacement cost every time an asset is retrieved.
-6. **Approval and retention** copies a final asset into a B2 Object Lock retention path.
+The hosted workspace is intentionally usable without an account. Paid public generations are limited by IP so judges can test the real provider path without exposing an unlimited model budget. Search, proof inspection, and exact B2 downloads remain available without another model call.
 
-**Exact retrieval and recipe replay are different by design.** Retrieve returns the original verified B2 bytes with no new model call. Replay invokes the model again as a paid, best-effort lineage child and may produce a different result when the provider is nondeterministic.
+## The idea in one minute
 
-## Install the Relay
+Every request ends in one of three honest choices:
 
-```bash
-pip install recall-relay
-recall-relay doctor
-```
+1. **Download exact** returns the original stored bytes from B2. No model runs.
+2. **Create a tracked fork** makes a deliberate variation and preserves the parent relationship.
+3. **Generate something new** pays for a new Genblaze run because the need is genuinely different.
 
-## Private by default
+Recall never silently substitutes an old asset. It recommends, explains, and leaves the final choice with the person making the request.
 
-- [Recall Vault](docs/VAULT.md) - isolated B2 workspace prefixes and workspace credentials.
+## Why this is more than a folder or a DAM
 
-## Use your own model
+A folder stores a file after someone remembers to save it. A digital asset manager helps organize files after they exist. Both are useful, but neither normally sits in front of a generation request before the provider charges the team.
 
-- [Recall Relay](docs/RELAY.md) - provider-neutral pre-generation SDK and authenticated capture API; provider keys never enter Recall.
+Recall connects the whole decision:
 
-### Make any provider reusable before it runs
+- what the person asked for
+- which provider and model produced the media
+- the exact B2 bytes and SHA-256 hash
+- the Genblaze recipe and canonical manifest
+- brand, campaign, format, license, and language intent
+- parent and child variations
+- approval and retention state
+- why Recall recommended reuse or generation
+- how much model cost was actually avoided
 
-`recall-relay` exposes `generate_with()`: your application supplies a local provider callback, Recall checks its private memory first, and only a safe miss invokes the provider. The completed bytes are archived with a caller-reported cost, integrity hash, and reuse receipt. This makes Recall a provider-neutral spend-control API, not a model-specific wrapper.
+The result is active generation memory, not a passive gallery.
 
-## Native Genblaze storage
+## A quick judge walkthrough
 
-Recall verifies the native `ObjectStorageSink` backend path against B2; the live provider pipeline remains safely feature-gated while direct B2 persistence preserves all generated outputs and canonical Genblaze manifests.
+You can understand the core product without spending provider credits:
 
-## Differentiated safety
+1. Open the [workspace](https://recall-production-production.up.railway.app/app).
+2. Choose a library item and select **Proof**.
+3. Confirm that the B2 asset hash is verified and inspect its Genblaze record and lineage.
+4. Enter a request similar to an existing asset and select **Check library, then generate**.
+5. Pause on the comparison between another model call and the exact B2 download at zero new model cost.
+6. Select **Download exact original** and confirm that the original file downloads.
+7. Watch **Saved by Recall** and **Paid calls avoided** update from a real reuse event.
+8. Select **Fork**, edit the loaded prompt, and notice that the primary action becomes **Create tracked fork**. This is a new paid variation with a parent link, not a copy.
+9. Inspect an approved item to see the B2 Object Lock retention state.
 
-- [Recall Ledger + Intent Firewall](docs/RECALL_LEDGER.md) - a tamper-evident record of avoided generation and policy-aware reuse that blocks similar-but-wrong assets.
-
-## Evidence
-
-- [Live reuse evaluation](docs/EVALUATION.md) - transparent production smoke test of semantic retrieval.
-- [Judge evidence](docs/EVIDENCE.md) - B2, Genblaze, provenance, and research links.
+Exact download and recipe replay are intentionally different. Download returns bit-for-bit stored media. Replay is a new paid model run and may produce a different result when the provider is nondeterministic.
 
 ## Architecture
 
-```mermaid
+~~~mermaid
 flowchart LR
-  U[Creator or integration] --> G{Reuse Gate}
-  G -->|match| R[Exact B2 retrieval]
-  G -->|new request| P[Genblaze Pipeline]
-  P --> M[Generation provider]
-  P --> A[Asset bytes]
-  A --> B[(Backblaze B2)]
-  P --> X[Canonical provenance manifest]
-  X --> B
-  B --> L[Library, lineage, integrity receipt]
-  R --> E[Reuse event and avoided cost]
-  E --> B
-```
+    U[Creator or connected app] --> R[Recall Reuse Gate]
+    R -->|Safe match| D[Exact B2 download]
+    R -->|New need| G[Genblaze pipeline]
+    G --> P[Generative media provider]
+    P --> G
+    G --> B[(Backblaze B2)]
+    B --> D
+    R --> C[Policy decision receipt]
+    C --> B
+    B --> L[Library, proof, lineage, savings]
+    D --> U
+    L --> U
+~~~
 
-Backblaze B2 is the system of record: media bytes, raw Genblaze manifests, readable recipes, catalog records, events, and approved immutable copies all live under the `recall/` prefix. Genblaze owns orchestration, provider abstraction, fallback routing, canonical provenance, and parent run lineage.
+There are two main paths:
 
-## Run locally
+- **Reuse path:** Recall searches memory, checks intent, records a verifiable decision receipt, and downloads the exact B2 object.
+- **Generation path:** Genblaze orchestrates the provider call, Recall seals the output hash into the provenance record, and the asset plus its metadata become durable B2 memory.
 
-1. Copy `.env.example` to `.env` and set your B2 credentials plus one provider key.
+Backblaze B2 is the system of record. Genblaze is the generation and provenance route. Recall is the decision layer that connects them to a human workflow.
 
-### Docker (recommended)
+## What we built
 
-```powershell
+| Capability | What it means for a user | How it works |
+| --- | --- | --- |
+| Reuse Gate | Check before paying again | Exact, lexical, tag, and optional semantic matching run before generation |
+| Intent Firewall | Similar does not automatically mean safe | Brand, campaign, format, license, and language conflicts block reuse |
+| Exact download | Get the approved original, not a new approximation | Recall streams the stored B2 bytes with a useful filename; Proof re-hashes the asset with SHA-256 |
+| Tracked forks | Change only what needs to change | A new Genblaze run keeps its parent generation and parent run lineage |
+| Honest recipe replay | Rerun saved settings without promising identical output | Replay is labeled as paid and best effort |
+| Proof records | Inspect what happened and verify it | B2 hash, manifest verification, lineage, cost, and storage evidence are exposed together |
+| Approval and retention | Protect a final creative decision | Approved media is copied to a B2 Object Lock retention path |
+| Savings ledger | See whether reuse is producing value | Avoided cost uses the original recorded cost and increments only on explicit reuse |
+| Recall Ledger | Prove what Recall checked before generation | Chained receipts contain policy evidence and salted prompt commitments |
+| Feedback calibration | Correct a bad suggestion | Wrong-match feedback blocks the same request and candidate pair in that workspace |
+| Private Vaults | Keep teams and archives isolated | Each workspace receives a B2 prefix and a one-time workspace credential |
+| Relay SDK | Put Recall in front of any provider | The provider callback stays in the user's process and only completed bytes are captured |
+| External capture | Preserve work created outside Recall | Authenticated image, video, or audio bytes are signature-checked, hashed, and archived |
+| Exact byte deduplication | Avoid storing identical external media twice | SHA-256 detects an existing asset before another B2 copy is written |
+| Asynchronous jobs | Keep slow media generation observable | Jobs are queued, bounded, retryable, workspace-scoped, and persisted in B2 |
+| Evidence export | Make the implementation inspectable | A machine-readable bundle includes integrity, lineage, recipe, and storage evidence |
+| Light and dark themes | Make the workspace comfortable and accessible | Responsive UI, clear action language, keyboard-friendly controls, and theme persistence |
+
+## How Recall decides whether something matches
+
+Recall uses a layered and explainable process:
+
+1. **Exact prompt match:** Normalized equality produces an exact score of 1.0.
+2. **Lexical match:** Token overlap and shared labels catch close wording.
+3. **Semantic match:** Optional Gemini embeddings identify paraphrases through cosine similarity.
+4. **Intent check:** Even a strong semantic match is rejected when structured intent conflicts.
+5. **Feedback check:** Previously rejected request and candidate pairs are not suggested again.
+6. **Human choice:** Recall recommends an action. It never retrieves or generates without an explicit choice.
+
+The live semantic threshold is conservative and near matches remain suggestions. This matters because a visually or linguistically similar asset can still be wrong for a brand, license, locale, or campaign.
+
+## How Backblaze B2 is used
+
+B2 is not a final upload destination added after the interesting work. It is Recall's durable economic memory.
+
+Recall stores:
+
+~~~text
+recall/
+  assets/{generation_id}/                  exact generated or captured media
+  genblaze-manifests/{generation_id}.json  raw Genblaze provenance
+  manifests/{generation_id}.json           readable generation recipe
+  index/runs/{generation_id}.json          searchable catalog record
+  index/jobs/{job_id}.json                  durable job state
+  index/events/{event_id}.json              generation and reuse economics
+  index/feedback/{feedback_id}.json         workspace calibration
+  ledger/{receipt_id}.json                  chained reuse decisions
+  approved/{generation_id}/                 Object Lock protected finals
+  workspaces/{workspace_id}/...             isolated private vaults
+~~~
+
+B2 serves five distinct roles:
+
+- durable storage for generated media
+- a catalog and event store for a small production system
+- provenance and recipe storage
+- exact media delivery through signed or server-mediated downloads
+- retention protection for approved outputs and decision receipts
+
+The storage adapter paginates B2 listings, scopes workspace keys under fixed prefixes, verifies content hashes, and fails closed when Object Lock was requested but could not be configured.
+
+## How Genblaze is used
+
+Genblaze is responsible for more than calling a model:
+
+- a Genblaze **Pipeline** orchestrates generation
+- a provider adapter connects Google Gemini image generation
+- fallback models can be configured without changing the product workflow
+- retries are recorded as part of the job path
+- the raw Genblaze manifest is stored beside every orchestrated asset
+- Recall fills output hash, byte size, and media type into the manifest when needed
+- the canonical manifest hash is recomputed and verified
+- parent run identifiers preserve lineage for forks and reruns
+- the native B2 ObjectStorageSink path is implemented behind a safe feature flag
+
+The live deployment uses Google **gemini-3.1-flash-image** for image generation. Optional semantic search uses **gemini-embedding-001**. Provider and model names are stored with each generation instead of being hidden behind generic labels.
+
+## Recall Relay: use your own model and keep the memory
+
+The [recall-relay](https://pypi.org/project/recall-relay/) package makes Recall useful outside the hosted workspace.
+
+~~~bash
+pip install recall-relay
+recall-relay doctor
+~~~
+
+Relay checks a private Recall workspace before your application calls its provider. On a safe hit, the provider callback is never invoked. On a miss, your callback generates the media locally and Relay captures the completed result.
+
+~~~python
+from recall_relay import RecallRelay
+
+relay = RecallRelay(
+    "https://your-recall.example",
+    workspace_id="ws-your-workspace",
+    workspace_key="save-the-one-time-key",
+)
+
+result = relay.generate_with(
+    "A cobalt launch image on warm ivory paper",
+    generator=lambda prompt: call_your_provider(prompt),
+    provider="your-provider",
+    model="your-model",
+    media_type="image/png",
+    tags=["launch", "cobalt"],
+    intent={"brand": "Acme", "format": "1:1"},
+    cost_usd=0.42,
+)
+
+print(result.status)
+~~~
+
+Provider keys remain in the caller's process. Recall receives completed media only after a safe miss. Relay currently accepts PNG, JPEG, WebP, MP4, MP3, and WAV with server-side byte-signature validation.
+
+See [Relay documentation](docs/RELAY.md) and the [Python package guide](sdk/python/README.md) for Gemini, OpenAI, CLI, and custom-provider examples.
+
+## Run Recall locally
+
+### Prerequisites
+
+- Docker Desktop, or Python 3.12
+- a Backblaze B2 bucket and bucket-restricted application key for full B2 behavior
+- a Google API key for live image generation
+
+Recall can start with local storage when B2 credentials are absent. That is useful for interface development, but B2 readiness, signed delivery, and Object Lock require real B2 configuration.
+
+### Option 1: Docker
+
+Clone the repository and create your local environment file:
+
+~~~bash
+git clone https://github.com/usv240/recall-generation-memory.git
+cd recall-generation-memory
+cp .env.example .env
+~~~
+
+On PowerShell, use:
+
+~~~powershell
+git clone https://github.com/usv240/recall-generation-memory.git
+Set-Location recall-generation-memory
 Copy-Item .env.example .env
-# Edit .env, then:
+~~~
+
+Edit **.env**, then start Recall:
+
+~~~bash
 docker compose up --build
-```
+~~~
 
-Open `http://127.0.0.1:8080/app`.
+Open http://127.0.0.1:8080/app.
 
-### Python
+### Option 2: Python
 
-```powershell
-Copy-Item .env.example .env
+~~~bash
+git clone https://github.com/usv240/recall-generation-memory.git
+cd recall-generation-memory
 python -m venv .venv
+~~~
+
+Activate the environment on macOS or Linux:
+
+~~~bash
+source .venv/bin/activate
+~~~
+
+Activate it on PowerShell:
+
+~~~powershell
 .\.venv\Scripts\Activate.ps1
+~~~
+
+Install and run:
+
+~~~bash
 python -m pip install -r backend/requirements.txt
 uvicorn backend.app.main:app --reload
-```
+~~~
 
-Open `http://127.0.0.1:8000/app`.
+Open http://127.0.0.1:8000/app.
 
-## API examples
+## Configure the full end-to-end path
 
-```bash
-# Discover a reuse before paying for a generation.
-curl -X POST "$RECALL_URL/api/v1/reuse-check" -H "Content-Type: application/json" \
-  -d '{"prompt":"A cobalt product tile on an ivory desk","tags":["hero"]}'
+Start with [.env.example](.env.example). Never commit **.env**.
 
-# Generate through an authenticated integration.
-curl -X POST "$RECALL_URL/api/v1/generate" -H "Content-Type: application/json" \
+### 1. Backblaze B2
+
+Create a bucket such as **recall-production**. Use a bucket-restricted application key with only the capabilities Recall needs. Restrict its filename prefix to **recall/** when possible.
+
+~~~dotenv
+B2_KEY_ID=your-restricted-key-id
+B2_APP_KEY=your-application-key
+B2_BUCKET=recall-production
+B2_REGION=us-east-005
+B2_LOCK_DAYS=30
+~~~
+
+If you want approval retention, enable Object Lock for the bucket and grant the restricted key the corresponding retention capabilities.
+
+### 2. Generation provider
+
+~~~dotenv
+RECALL_PROVIDER=google
+GOOGLE_API_KEY=your-google-api-key
+RECALL_MODEL=gemini-3.1-flash-image
+GOOGLE_MODEL_IMAGE=gemini-3.1-flash-image
+RECALL_MODEL_COST_USD=0.067
+~~~
+
+Set **RECALL_MODEL_COST_USD** to the effective cost of the output tier you actually use. Recall does not invent pricing. If no trustworthy cost is provided, the generation remains unpriced and does not create fictional savings.
+
+### 3. Production controls
+
+~~~dotenv
+RECALL_API_KEYS=replace-with-a-long-integration-key
+RECALL_CORS_ORIGINS=https://your-domain.example
+RECALL_RECEIPT_SECRET=replace-with-a-long-random-secret
+RECALL_ALLOW_PUBLIC_GENERATE=false
+RECALL_PUBLIC_GENERATIONS_PER_HOUR=3
+RECALL_PUBLIC_REUSE_CHECKS_PER_HOUR=120
+~~~
+
+For a public judging deployment, public generation can remain enabled with a small quota. For a private production deployment, disable it and distribute scoped integration or workspace credentials.
+
+### 4. Verify readiness
+
+~~~bash
+curl http://127.0.0.1:8080/api/health
+curl http://127.0.0.1:8080/api/ready
+~~~
+
+Health confirms that the process is alive. Readiness confirms that B2 is reachable and the generation provider is configured.
+
+## Use the REST API
+
+The full OpenAPI document is available at **/openapi.json**, with interactive documentation at **/docs**.
+
+Set a base URL:
+
+~~~bash
+export RECALL_URL=https://recall-production-production.up.railway.app
+~~~
+
+### Check for reusable work
+
+~~~bash
+curl -X POST "$RECALL_URL/api/v1/reuse-check" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "A cobalt product tile on an ivory desk",
+    "tags": ["hero", "launch"],
+    "intent": {"brand": "Recall", "format": "1:1"}
+  }'
+~~~
+
+The response recommends **reuse** or **generate**, explains blockers, returns ranked candidates, and includes a verifiable decision receipt.
+
+### Queue a generation
+
+~~~bash
+curl -X POST "$RECALL_URL/api/v1/jobs/generate" \
+  -H "Content-Type: application/json" \
   -H "X-Recall-Key: $RECALL_API_KEY" \
-  -d '{"prompt":"A cobalt product tile on an ivory desk","tags":["hero","brand"]}'
+  -d '{
+    "prompt": "A cobalt product tile on an ivory desk",
+    "tags": ["hero", "launch"],
+    "intent": {"brand": "Recall", "format": "1:1"}
+  }'
+~~~
 
-# Verify the archived bytes and manifest.
+Poll the returned **poll** URL until the job is **completed** or **failed**.
+
+### Download and account for an exact reuse
+
+~~~bash
+curl -X POST "$RECALL_URL/api/v1/gen/GENERATION_ID/reproduce"
+curl -OJ "$RECALL_URL/api/v1/gen/GENERATION_ID/download"
+~~~
+
+The first request records the explicit reuse and avoided cost. The second returns the original media as an attachment.
+
+### Verify an asset
+
+~~~bash
 curl "$RECALL_URL/api/v1/gen/GENERATION_ID/verify"
-```
+curl "$RECALL_URL/api/v1/gen/GENERATION_ID/evidence"
+curl "$RECALL_URL/api/v1/gen/GENERATION_ID/lineage"
+~~~
 
-## Configuration and security
+### Create a private workspace
 
-Use `.env.example` as the full environment reference. In production:
+~~~bash
+curl -X POST "$RECALL_URL/api/v1/workspaces" \
+  -H "X-Recall-Key: $RECALL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"label": "My creative vault"}'
+~~~
 
-- Create a **bucket-restricted B2 application key** for `recall-production`; do not use a master key.
-- Restrict the key to list/read/write the Recall bucket and, if using approval retention, the required Object Lock permissions.
-- Set `RECALL_API_KEYS` to comma-separated secrets for integrations.
-- Set `RECALL_CORS_ORIGINS` to your real frontend origins.
-- Keep `RECALL_PUBLIC_GENERATIONS_PER_HOUR` low in demo mode, or set `RECALL_ALLOW_PUBLIC_GENERATE=false` once judges have an API key/test flow.
-- Rotate any broad B2 key that was previously used during development.
-- Set a unique `RECALL_RECEIPT_SECRET`; it salts prompt commitments without storing the raw reuse-check prompt in ledger receipts.
-- Tune public reuse checks, capture/output byte limits, and the bounded generation queue with the limits in `.env.example`.
+Save the returned workspace key immediately. Recall stores only its SHA-256 and never returns the raw key again. Private requests include both **X-Recall-Workspace** and **X-Recall-Workspace-Key**.
 
-Production safeguards include fail-closed Object Lock writes, paginated B2 catalog reads, strict media-signature and parameter validation, bounded public/queued work, non-root Docker execution, workspace-scoped background jobs, and origin-scoped Relay credentials. Analytics-event failures cannot turn an already archived paid generation into a retryable failure; completed jobs surface an explicit warning instead.
+## Security and production behavior
 
-## Verification
+Recall includes practical controls for a public generative-media application:
 
-```powershell
-python -m pytest -q tests
-```
+- bucket-restricted B2 credentials
+- private workspace prefixes and hashed workspace keys
+- integration API keys and origin-scoped Relay headers
+- public generation and reuse-check rate limits
+- bounded active and queued jobs
+- retry and stale-job recovery
+- strict parameter lengths and tag limits
+- allowlisted MIME types with actual byte-signature checks
+- configurable capture and generated-media size ceilings
+- HMAC prompt commitments instead of raw prompts in reuse receipts
+- security headers, restrictive CORS configuration, and no public embedding vectors
+- a non-root Docker user
+- fail-closed Object Lock writes
+- event handling that does not turn an already archived paid generation into a retryable failure
 
-## Provider and cost honesty
+For sensitive teams, self-host Recall with a dedicated B2 bucket and a restricted application key. Provider secrets should remain in Relay or the calling application, never in browser code.
 
-Recall currently uses Google `gemini-3.1-flash-image` through a custom Genblaze provider. `RECALL_MODEL_COST_USD` is recorded only at generation time and must match the selected output tier. The live demo uses `$0.067` for a 1K image, based on Google's published image pricing. Existing generations made before a cost was configured are deliberately marked unpriced rather than estimated.
+## Verify the repository
 
-## Submission checklist
+Run the complete test suite:
 
-See [docs/LAUNCH.md](docs/LAUNCH.md) for the public-repo, Railway, B2, Devpost, and three-minute-video checklist. See [docs/EVIDENCE.md](docs/EVIDENCE.md) for research and product decisions.
+~~~bash
+python -m pytest -q
+~~~
+
+The tests cover retrieval, integrity, manifests, reuse policy, feedback, workspaces, quotas, jobs, retries, evidence, the Relay, media validation, B2 pagination, Object Lock failure behavior, and frontend regressions.
+
+A small reproducible semantic smoke evaluation is documented in [docs/EVALUATION.md](docs/EVALUATION.md). It is intentionally presented as a narrow production check, not a broad benchmark.
+
+## Repository map
+
+~~~text
+backend/app/       FastAPI API, Genblaze pipeline, policies, storage, security
+frontend/          landing page, workspace, proof certificate, light and dark themes
+sdk/python/        published recall-relay package and CLI
+tests/             end-to-end and regression tests
+evals/             transparent retrieval evaluation cases
+docs/              launch, evidence, Relay, Vault, Ledger, and demo guides
+scripts/           operational and validation helpers
+Dockerfile         non-root production container
+railway.toml       Railway health-check deployment configuration
+~~~
+
+## Honest boundaries
+
+- Built-in generation currently targets images through Google Gemini. Relay capture supports selected image, video, and audio formats.
+- Exact download is bit-for-bit because it serves the stored B2 object. Provider replay is a new paid run and may differ.
+- External captures preserve provider, model, caller-reported cost, and byte integrity, but are not represented as Genblaze-generated runs.
+- Recall Ledger proves canonical receipt integrity and chain continuity. It does not claim third-party identity signatures or full C2PA compliance.
+- The native Genblaze ObjectStorageSink path is feature-gated because the current provider and local-file combination produced a reproducible B2 authorization failure. Recall still preserves the exact output and raw Genblaze manifest directly in B2. The reproduction is documented in [docs/GENBLAZE_SINK_ISSUE.md](docs/GENBLAZE_SINK_ISSUE.md).
+- The public library is intentionally small. Published matching results should not be interpreted as a large-scale benchmark.
+
+## Why we believe this matters
+
+Fragmented creative operations lead to duplicated work and wasted budget. Recall moves reuse from an archival task to a decision made before another provider call. It also treats near matches conservatively because false positives become more damaging as a library grows.
+
+The research and platform decisions behind the product are collected in [docs/EVIDENCE.md](docs/EVIDENCE.md), including work on duplicate creative effort, AI-assisted asset management, near-duplicate retrieval, Genblaze provenance, and B2 Object Lock.
+
+## Built for the Backblaze Generative Media Hackathon
+
+Recall directly addresses all four judging dimensions:
+
+| Judge dimension | Recall evidence |
+| --- | --- |
+| Real-world utility | Prevents redundant paid generations and retrieves approved originals across tools |
+| Production readiness | Live deployment, health and readiness checks, quotas, jobs, retries, private workspaces, tests, SDK, and documented security controls |
+| B2 storage and orchestration | Assets, manifests, catalog, jobs, receipts, events, evidence, exact delivery, workspace isolation, and Object Lock finals |
+| Genblaze use | Pipeline orchestration, provider abstraction, fallback configuration, canonical manifests, verification, retries, and lineage |
+
+Recall is substantially different from Trueprint, the team's other submission. Recall acts before generation to decide whether a team should reuse, fork, or pay for new media. Trueprint acts after media exists to evaluate authenticity and claims. Their users, workflows, outcomes, and success metrics are different.
+
+For the final submission and three-minute walkthrough, see [docs/LAUNCH.md](docs/LAUNCH.md), [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md), and [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md).
+
+## License
+
+Recall is available under the [MIT License](LICENSE).
