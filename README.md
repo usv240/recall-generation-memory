@@ -21,6 +21,19 @@ Recall changes that default.
 
 The hosted workspace is intentionally usable without an account. Paid public generations are limited by IP so judges can test the real provider path without exposing an unlimited model budget. Search, proof inspection, and exact B2 downloads remain available without another model call.
 
+## Start here
+
+| If you want to... | Go to... |
+| --- | --- |
+| Understand the product quickly | [The idea in one minute](#the-idea-in-one-minute) |
+| See why Recall is not just file storage | [Why this is more than a folder or a DAM](#why-this-is-more-than-a-folder-or-a-dam) |
+| Test the live workflow | [A quick judge walkthrough](#a-quick-judge-walkthrough) |
+| Understand the system | [Architecture](#architecture) and [What we built](#what-we-built) |
+| Connect your own provider | [Recall Relay](#recall-relay-use-your-own-model-and-keep-the-memory) |
+| Run Recall yourself | [Run Recall locally](#run-recall-locally) |
+| Integrate through HTTP | [Use the REST API](#use-the-rest-api) |
+| Review limitations and submission evidence | [Honest boundaries](#honest-boundaries) and [hackathon evidence](#built-for-the-backblaze-generative-media-hackathon) |
+
 ## The idea in one minute
 
 Every request ends in one of three honest choices:
@@ -69,11 +82,14 @@ Exact download and recipe replay are intentionally different. Download returns b
 
 ~~~mermaid
 flowchart LR
-    U[Creator or connected app] --> R[Recall Reuse Gate]
+    U[Creator or connected app] --> R[Recall Reuse Gate and route policy]
     R -->|Safe match| D[Exact B2 download]
     R -->|New need| G[Genblaze pipeline]
-    G --> P[Generative media provider]
-    P --> G
+    G --> P{Provider route}
+    P -->|Image| GO[Google Gemini]
+    P -->|Image or video| GM[GMI Cloud]
+    GO --> G
+    GM --> G
     G --> B[(Backblaze B2)]
     B --> D
     R --> C[Policy decision receipt]
@@ -384,7 +400,10 @@ Poll the returned **poll** URL until the job is **completed** or **failed**. For
 ### Queue a short video
 
 ~~~bash
-curl -X POST "$RECALL_URL/api/v1/jobs/generate"   -H "Content-Type: application/json"   -H "X-Recall-Key: $RECALL_API_KEY"   -d '{
+curl -X POST "$RECALL_URL/api/v1/jobs/generate" \
+  -H "Content-Type: application/json" \
+  -H "X-Recall-Key: $RECALL_API_KEY" \
+  -d '{
     "prompt": "A slow camera orbit around a cobalt product on an ivory table",
     "modality": "video",
     "provider": "gmi",
