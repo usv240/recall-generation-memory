@@ -167,7 +167,7 @@ Genblaze is responsible for more than calling a model:
 - Recall fills output hash, byte size, and media type into the manifest when needed
 - the canonical manifest hash is recomputed and verified
 - parent run identifiers preserve lineage for forks and reruns
-- the native B2 ObjectStorageSink path is implemented behind a safe feature flag
+- the native Genblaze ObjectStorageSink path is verified end to end against private B2, with authenticated retrieval and workspace-scoped prefixes
 
 The live deployment uses Google **gemini-3.1-flash-image** for image generation. Optional semantic search uses **gemini-embedding-001**. Provider and model names are stored with each generation instead of being hidden behind generic labels.
 
@@ -297,12 +297,17 @@ If you want approval retention, enable Object Lock for the bucket and grant the 
 ~~~dotenv
 RECALL_PROVIDER=google
 GOOGLE_API_KEY=your-google-api-key
-RECALL_MODEL=gemini-3.1-flash-image
 GOOGLE_MODEL_IMAGE=gemini-3.1-flash-image
+GMI_API_KEY=your-gmi-api-key
+GMI_MODEL_IMAGE=gpt-image-2-generate
+RECALL_MODEL=gemini-3.1-flash-image
 RECALL_MODEL_COST_USD=0.067
+RECALL_GOOGLE_MODEL_COST_USD=0.067
+RECALL_GMI_MODEL_COST_USD=your-effective-gmi-output-cost
+RECALL_NATIVE_SINK=true
 ~~~
 
-Set **RECALL_MODEL_COST_USD** to the effective cost of the output tier you actually use. Recall does not invent pricing. If no trustworthy cost is provided, the generation remains unpriced and does not create fictional savings.
+Configure either provider or both. The workspace shows only routes with credentials, and every generation, rerun, or fork records the provider and model it actually used. Set the provider-specific cost variables to the effective price of each output tier. **RECALL_MODEL_COST_USD** remains the backward-compatible price for the default provider. Recall never borrows one provider's price for another. If no trustworthy cost is available, the output remains unpriced and does not create fictional savings.
 
 ### 3. Production controls
 
@@ -343,6 +348,7 @@ curl -X POST "$RECALL_URL/api/v1/reuse-check" \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "A cobalt product tile on an ivory desk",
+    "provider": "google",
     "tags": ["hero", "launch"],
     "intent": {"brand": "Recall", "format": "1:1"}
   }'
@@ -358,6 +364,7 @@ curl -X POST "$RECALL_URL/api/v1/jobs/generate" \
   -H "X-Recall-Key: $RECALL_API_KEY" \
   -d '{
     "prompt": "A cobalt product tile on an ivory desk",
+    "provider": "google",
     "tags": ["hero", "launch"],
     "intent": {"brand": "Recall", "format": "1:1"}
   }'
@@ -446,7 +453,7 @@ railway.toml       Railway health-check deployment configuration
 - Exact download is bit-for-bit because it serves the stored B2 object. Provider replay is a new paid run and may differ.
 - External captures preserve provider, model, caller-reported cost, and byte integrity, but are not represented as Genblaze-generated runs.
 - Recall Ledger proves canonical receipt integrity and chain continuity. It does not claim third-party identity signatures or full C2PA compliance.
-- The native Genblaze ObjectStorageSink path is feature-gated because the current provider and local-file combination produced a reproducible B2 authorization failure. Recall still preserves the exact output and raw Genblaze manifest directly in B2. The reproduction is documented in [docs/GENBLAZE_SINK_ISSUE.md](docs/GENBLAZE_SINK_ISSUE.md).
+- Genblaze ObjectStorageSink originally returned an unsigned URL for the private B2 object. Recall now recognizes only its configured B2 host and bucket, retrieves that object through authenticated storage, enforces workspace boundaries, archives the canonical copy, and verifies the resulting manifest. The diagnosis and proof are documented in [docs/GENBLAZE_SINK_ISSUE.md](docs/GENBLAZE_SINK_ISSUE.md).
 - The public library is intentionally small. Published matching results should not be interpreted as a large-scale benchmark.
 
 ## Why we believe this matters

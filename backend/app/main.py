@@ -198,6 +198,7 @@ class ParameterizedRequest(BaseModel):
 
 class GenerateRequest(ParameterizedRequest):
     prompt: str = Field(min_length=3, max_length=1000)
+    provider: str | None = Field(default=None, pattern="^(google|gmi)$")
     model: str | None = Field(default=None, min_length=1, max_length=160)
     tags: list[ShortTag] = Field(default_factory=list, max_length=20)
     parent_gen_id: str | None = Field(default=None, max_length=80)
@@ -212,6 +213,8 @@ class ReuseRequest(BaseModel):
 
 class ForkRequest(ParameterizedRequest):
     prompt: str = Field(min_length=3, max_length=1000)
+    provider: str | None = Field(default=None, pattern="^(google|gmi)$")
+    model: str | None = Field(default=None, min_length=1, max_length=160)
     intent: IntentProfile = Field(default_factory=IntentProfile)
 
 
@@ -246,6 +249,9 @@ class FeedbackRequest(BaseModel):
 def public(row: dict[str, Any]) -> dict[str, Any]:
     data = dict(row)
     semantic = data.pop("semantic", None)
+    genblaze = dict(data.get("genblaze") or {})
+    genblaze.pop("native_asset_url", None)
+    data["genblaze"] = genblaze
     data["semantic_indexed"] = bool(semantic and semantic.get("embedding"))
     asset_key = row.get("asset", {}).get("b2_key")
     data["asset_url"] = store().url(asset_key) if asset_key else None
@@ -288,8 +294,8 @@ def _run_job(job_id: str, payload: GenerateRequest, actor: str, workspace_id: st
         job.update({"status": "running", "started": now()})
         task_store.save_job(job)
         try:
-            row = RecallPipeline(task_store).generate(prompt=payload.prompt, model=payload.model or config.RECALL_MODEL, params=payload.params, tags=payload.tags, parent_id=payload.parent_gen_id, intent=clean_intent(payload.intent.model_dump()))
-            event_recorded = event("generate", gen_id=row["gen_id"], actor=actor, model=row["model"], cost_usd=row.get("cost_usd"), job_id=job_id)
+            row = RecallPipeline(task_store).generate(prompt=payload.prompt, model=payload.model, provider=payload.provider, params=payload.params, tags=payload.tags, parent_id=payload.parent_gen_id, intent=clean_intent(payload.intent.model_dump()))
+            event_recorded = event("generate", gen_id=row["gen_id"], actor=actor, provider=row["provider"], model=row["model"], cost_usd=row.get("cost_usd"), job_id=job_id)
             job.update({"status": "completed", "completed": now(), "generation_id": row["gen_id"]})
             if not event_recorded:
                 job["warning"] = "Generation archived, but its analytics event could not be recorded."
@@ -343,6 +349,9 @@ def health() -> dict[str, Any]:
         "storage": store().mode,
         "live_mode": True,
         "generation_provider": config.has_generation_provider,
+        "generation_providers": config.available_generation_providers,
+        "default_generation_provider": config.default_generation_provider,
+        "native_genblaze_b2_sink": store().mode == "b2" and config.RECALL_NATIVE_SINK,
         "api_version": "v1",
         "public_demo_generation_limit_per_hour": config.RECALL_PUBLIC_GENERATIONS_PER_HOUR if config.RECALL_ALLOW_PUBLIC_GENERATE else 0,
         "public_reuse_check_limit_per_hour": config.RECALL_PUBLIC_REUSE_CHECKS_PER_HOUR,
@@ -366,9 +375,11 @@ def ready() -> dict[str, Any]:
     receipt_secret_strong = config.RECALL_RECEIPT_SECRET != "local-development-only-change-me" and len(config.RECALL_RECEIPT_SECRET) >= 32
     if not receipt_secret_strong:
         warnings.append("Set a strong RECALL_RECEIPT_SECRET before handling private workspaces.")
+    if not config.RECALL_NATIVE_SINK:
+        warnings.append("Enable RECALL_NATIVE_SINK to persist Genblaze outputs directly through its B2 storage sink.")
     if not config.RECALL_CORS_ORIGINS:
         warnings.append("Set RECALL_CORS_ORIGINS to the production frontend origin.")
-    return {"ok": True, "checks": {"b2": "reachable", "generation_provider": "configured", "receipt_commitments":"configured" if receipt_secret_strong else "development-default"}, "warnings":warnings, "recovered_interrupted_jobs": recovered_jobs}
+    return {"ok": True, "checks": {"b2": "reachable", "generation_provider": "configured", "generation_providers":config.available_generation_providers, "receipt_commitments":"configured" if receipt_secret_strong else "development-default"}, "warnings":warnings, "recovered_interrupted_jobs": recovered_jobs}
 
 
 @app.post("/api/v1/reuse-check")
@@ -486,13 +497,14 @@ def generate(payload: GenerateRequest, request: Request) -> dict[str, Any]:
     try:
         row = RecallPipeline(store()).generate(
             prompt=payload.prompt,
-            model=payload.model or config.RECALL_MODEL,
+            model=payload.model,
+            provider=payload.provider,
             params=payload.params,
             tags=payload.tags,
             parent_id=payload.parent_gen_id,
             intent=clean_intent(payload.intent.model_dump()),
         )
-        event("generate", gen_id=row["gen_id"], actor=actor.label, model=row["model"], cost_usd=row.get("cost_usd"))
+        event("generate", gen_id=row["gen_id"], actor=actor.label, provider=row["provider"], model=row["model"], cost_usd=row.get("cost_usd"))
         return public(row)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
@@ -503,14 +515,15 @@ def generate(payload: GenerateRequest, request: Request) -> dict[str, Any]:
 
 @app.get("/api/v1/library")
 @app.get("/api/library")
-def library(q: str = "", tag: str = "", model: str = "", limit: int = 48, offset: int = 0) -> dict[str, Any]:
+def library(q: str = "", tag: str = "", model: str = "", provider: str = "", limit: int = 48, offset: int = 0) -> dict[str, Any]:
     limit = min(max(1, limit), 100)
     offset = max(0, offset)
-    needle, wanted, model_filter = q.casefold().strip(), tag.casefold().strip(), model.casefold().strip()
+    needle, wanted, model_filter, provider_filter = q.casefold().strip(), tag.casefold().strip(), model.casefold().strip(), provider.casefold().strip()
     rows = store().generations()
     rows = [row for row in rows if not needle or needle in (row.get("prompt", "") + " " + " ".join(row.get("tags", []))).casefold()]
     rows = [row for row in rows if not wanted or wanted in [value.casefold() for value in row.get("tags", [])]]
     rows = [row for row in rows if not model_filter or model_filter in row.get("model", "").casefold()]
+    rows = [row for row in rows if not provider_filter or provider_filter == row.get("provider", "").casefold()]
     return {"items": [public(row) for row in rows[offset: offset + limit]], "total": len(rows), "limit": limit, "offset": offset}
 
 
@@ -653,7 +666,7 @@ def rerun_recipe(gen_id: str, request: Request) -> dict[str, Any]:
     if original.get("provenance_kind") == "external_capture":
         raise HTTPException(409, "external captures have no Genblaze recipe to re-run; create a tracked fork instead")
     payload = GenerateRequest(
-        prompt=original["prompt"], model=original["model"], params=original.get("params", {}),
+        prompt=original["prompt"], provider=original.get("provider"), model=original["model"], params=original.get("params", {}),
         tags=[*original.get("tags", [])[:19], "rerun"], parent_gen_id=gen_id, intent=IntentProfile(**original.get("intent", {})),
     )
     job_id = f"job_{uuid.uuid4().hex[:12]}"
@@ -731,9 +744,14 @@ def fork(gen_id: str, payload: ForkRequest, request: Request) -> dict[str, Any]:
         raise HTTPException(404, "generation not found")
     actor = require_generation_access(request)
     try:
-        row = RecallPipeline(store()).generate(prompt=payload.prompt, model=parent["model"], params={**parent.get("params", {}), **payload.params}, tags=parent.get("tags", []), parent_id=gen_id, intent=clean_intent(payload.intent.model_dump()) or parent.get("intent", {}))
+        parent_provider = parent.get("provider", "").casefold()
+        provider_name = payload.provider or (parent_provider if config.provider_is_configured(parent_provider) else config.default_generation_provider)
+        model_name = payload.model or (parent.get("model") if provider_name == parent_provider else None)
+        row = RecallPipeline(store()).generate(prompt=payload.prompt, provider=provider_name, model=model_name, params={**parent.get("params", {}), **payload.params}, tags=parent.get("tags", []), parent_id=gen_id, intent=clean_intent(payload.intent.model_dump()) or parent.get("intent", {}))
         event("fork", gen_id=row["gen_id"], actor=actor.label, parent_gen_id=gen_id, cost_usd=row.get("cost_usd"))
         return public(row)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc:
         event("fork_failed", gen_id=gen_id, actor=actor.label, reason=str(exc)[:180])
         raise HTTPException(503, str(exc)) from exc
@@ -867,6 +885,14 @@ def integration() -> dict[str, Any]:
         "version": "v1",
         "openapi": "/openapi.json",
         "authentication": "Use X-Recall-Key or Authorization: Bearer <key> for protected automation. The hosted demo also provides a tightly rate-limited public lane.",
+        "generation": {
+            "default_provider": config.default_generation_provider,
+            "native_b2_sink": store().mode == "b2" and config.RECALL_NATIVE_SINK,
+            "providers": [
+                {"id": provider, "label": "Google Gemini" if provider == "google" else "GMI Cloud", "default_model": config.default_model_for(provider), "configured": True}
+                for provider in config.available_generation_providers
+            ],
+        },
         "flows": {
             "workspace": "POST /api/v1/workspaces (one-time workspace key; requires X-Recall-Key)",
             "reuse_check": "POST /api/v1/reuse-check",

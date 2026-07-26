@@ -64,12 +64,11 @@ class RecallImageProvider(GMICloudImageProvider):
 
 
 class RecallGoogleImageProvider:
-    """A real Genblaze provider (SyncProvider) for Google Gemini image-to-image.
+    """Genblaze SyncProvider adapter for Google Gemini image generation.
 
-    Lets Trueprint run its second, independent colorization through Genblaze on a
-    *different provider family* (Google) than gpt-image (OpenAI/GMI), so the
-    confidence map is genuine multi-provider corroboration. Implemented lazily as a
-    subclass so importing this module never requires genblaze at load time.
+    Recall uses this adapter for provider-neutral text-to-image generation and
+    lineage-tracked variations. The class is created lazily so importing the API
+    does not require Genblaze until a generation job runs.
     """
 
     _impl = None

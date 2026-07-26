@@ -41,13 +41,18 @@ class Config:
 
     GMI_API_KEY = _env("GMI_API_KEY")
     GMI_IMAGE_BASE_URL = _env("GMI_IMAGE_BASE_URL", "https://console.gmicloud.ai/api/v1/ie/requestqueue/apikey")
+    GMI_MODEL_IMAGE = _env("GMI_MODEL_IMAGE", "gpt-image-2-generate")
     GOOGLE_API_KEY = _env("GOOGLE_API_KEY")
     GOOGLE_MODEL_IMAGE = _env("GOOGLE_MODEL_IMAGE", "gemini-3.1-flash-image")
     RECALL_PROVIDER = _env("RECALL_PROVIDER", "google")
-    RECALL_MODEL = _env("RECALL_MODEL", GOOGLE_MODEL_IMAGE)
+    RECALL_MODEL = _env("RECALL_MODEL")
     RECALL_MODEL_COST_USD = _optional_nonnegative_float("RECALL_MODEL_COST_USD")
+    RECALL_GOOGLE_MODEL_COST_USD = _optional_nonnegative_float("RECALL_GOOGLE_MODEL_COST_USD")
+    RECALL_GMI_MODEL_COST_USD = _optional_nonnegative_float("RECALL_GMI_MODEL_COST_USD")
     RECALL_NATIVE_SINK = _bool("RECALL_NATIVE_SINK")
     RECALL_FALLBACK_MODELS = [m.strip() for m in (_env("RECALL_FALLBACK_MODELS", "") or "").split(",") if m.strip()]
+    RECALL_GOOGLE_FALLBACK_MODELS = [m.strip() for m in (_env("RECALL_GOOGLE_FALLBACK_MODELS", "") or "").split(",") if m.strip()]
+    RECALL_GMI_FALLBACK_MODELS = [m.strip() for m in (_env("RECALL_GMI_FALLBACK_MODELS", "") or "").split(",") if m.strip()]
     RECALL_GENERATION_RETRIES = max(1, int(_env("RECALL_GENERATION_RETRIES", "2") or 2))
     RECALL_JOB_STALE_MINUTES = max(5, int(_env("RECALL_JOB_STALE_MINUTES", "20") or 20))
     RECALL_MAX_ACTIVE_AND_QUEUED_JOBS = max(2, int(_env("RECALL_MAX_ACTIVE_AND_QUEUED_JOBS", "20") or 20))
@@ -76,7 +81,54 @@ class Config:
 
     @property
     def has_generation_provider(self) -> bool:
-        return bool(self.GOOGLE_API_KEY if self.RECALL_PROVIDER == "google" else self.GMI_API_KEY)
+        return bool(self.available_generation_providers)
+
+    @property
+    def available_generation_providers(self) -> list[str]:
+        providers: list[str] = []
+        if self.GOOGLE_API_KEY:
+            providers.append("google")
+        if self.GMI_API_KEY:
+            providers.append("gmi")
+        return providers
+
+    @property
+    def default_generation_provider(self) -> str:
+        configured = self.available_generation_providers
+        preferred = self.RECALL_PROVIDER.casefold()
+        return preferred if preferred in configured else (configured[0] if configured else preferred)
+
+    def provider_is_configured(self, provider: str) -> bool:
+        return provider.casefold() in self.available_generation_providers
+
+    def default_model_for(self, provider: str) -> str:
+        normalized = provider.casefold()
+        if normalized == self.RECALL_PROVIDER.casefold() and self.RECALL_MODEL:
+            return self.RECALL_MODEL
+        if normalized == "google":
+            return self.GOOGLE_MODEL_IMAGE
+        if normalized == "gmi":
+            return self.GMI_MODEL_IMAGE
+        raise ValueError(f"unsupported generation provider: {provider}")
+
+    def model_cost_for(self, provider: str, model: str) -> float | None:
+        normalized = provider.casefold()
+        if model != self.default_model_for(normalized):
+            return None
+        if normalized == "google" and self.RECALL_GOOGLE_MODEL_COST_USD is not None:
+            return self.RECALL_GOOGLE_MODEL_COST_USD
+        if normalized == "gmi" and self.RECALL_GMI_MODEL_COST_USD is not None:
+            return self.RECALL_GMI_MODEL_COST_USD
+        if normalized == self.RECALL_PROVIDER.casefold():
+            return self.RECALL_MODEL_COST_USD
+        return None
+
+    def fallback_models_for(self, provider: str) -> list[str]:
+        normalized = provider.casefold()
+        specific = self.RECALL_GOOGLE_FALLBACK_MODELS if normalized == "google" else self.RECALL_GMI_FALLBACK_MODELS
+        if specific:
+            return specific
+        return self.RECALL_FALLBACK_MODELS if normalized == self.RECALL_PROVIDER.casefold() else []
 
 
 config = Config()

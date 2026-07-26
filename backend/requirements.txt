@@ -1,7 +1,7 @@
-fastapi
-uvicorn[standard]
-python-dotenv
-httpx
-genblaze
-genblaze-s3
-genblaze-gmicloud
+fastapi==0.139.2
+uvicorn[standard]==0.51.0
+python-dotenv==1.2.2
+httpx==0.28.1
+genblaze==0.4.4
+genblaze-s3==0.3.6
+genblaze-gmicloud==0.3.4

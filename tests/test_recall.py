@@ -16,6 +16,7 @@ from backend.app import main
 from backend.app.reuse import rank
 from backend.app.storage import RecallStore
 from backend.app.config import config
+from backend.app.pipeline import RecallPipeline, _safe_error
 from backend.app.ledger import verify_receipt
 from backend.app.security import limiter
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sdk" / "python"))
@@ -638,3 +639,149 @@ def test_external_capture_cannot_claim_genblaze_recipe_rerun(monkeypatch):
     recipe = client.get(f"/api/v1/gen/{captured['gen_id']}/replay-recipe").json()
     assert recipe["command"] is None
     assert "no Genblaze recipe" in recipe["note"]
+
+
+def test_public_generation_records_hide_internal_provider_paths():
+    memory = MemoryStore(); row = sample(memory); main._store = memory
+    row["genblaze"]["native_asset_url"] = "file:///tmp/provider-output.png"
+    memory.save_generation(row)
+    client = TestClient(main.app)
+    for url in ("/api/v1/library", "/api/v1/gen/gen_demo"):
+        response = client.get(url)
+        assert response.status_code == 200
+        body = response.json()
+        serialized = json.dumps(body)
+        assert "native_asset_url" not in serialized
+        assert "file:///" not in serialized
+
+
+def test_generation_job_preserves_selected_provider(monkeypatch):
+    memory = MemoryStore(); row = sample(memory); main._store = memory
+    seen = {}
+    monkeypatch.setattr(main._jobs, "submit", lambda fn, *args: fn(*args))
+
+    def generate_with_route(self, **kwargs):
+        seen.update(kwargs)
+        routed = dict(row)
+        routed["provider"] = kwargs["provider"]
+        return routed
+
+    monkeypatch.setattr(main.RecallPipeline, "generate", generate_with_route)
+    response = TestClient(main.app).post("/api/v1/jobs/generate", headers={"X-Forwarded-For":"198.51.100.201"}, json={"prompt":"route this image", "provider":"gmi"})
+    assert response.status_code == 202
+    assert seen["provider"] == "gmi"
+    assert seen["model"] is None
+
+
+def test_cross_provider_fork_uses_new_provider_default_model(monkeypatch):
+    memory = MemoryStore(); row = sample(memory); main._store = memory
+    seen = {}
+
+    def generate_fork(self, **kwargs):
+        seen.update(kwargs)
+        return {**row, "gen_id":"gen_fork", "provider":kwargs["provider"], "model":kwargs["model"] or "gpt-image-2-generate", "parent_gen_id":"gen_demo"}
+
+    monkeypatch.setattr(main.RecallPipeline, "generate", generate_fork)
+    response = TestClient(main.app).post("/api/v1/gen/gen_demo/fork", headers={"X-Forwarded-For":"198.51.100.202"}, json={"prompt":"make a warmer version", "provider":"gmi"})
+    assert response.status_code == 200
+    assert seen["provider"] == "gmi"
+    assert seen["model"] is None
+    assert seen["parent_id"] == "gen_demo"
+
+
+def test_integration_lists_only_configured_provider_routes(monkeypatch):
+    monkeypatch.setattr(config, "GOOGLE_API_KEY", "configured")
+    monkeypatch.setattr(config, "GMI_API_KEY", None)
+    monkeypatch.setattr(config, "RECALL_PROVIDER", "google")
+    response = TestClient(main.app).get("/api/v1/integration")
+    assert response.status_code == 200
+    generation = response.json()["generation"]
+    assert generation["default_provider"] == "google"
+    assert [item["id"] for item in generation["providers"]] == ["google"]
+    assert all("key" not in json.dumps(item).casefold() for item in generation["providers"])
+
+
+def test_workspace_exposes_provider_route_without_visual_help_clutter():
+    page = (Path(__file__).resolve().parents[1] / "frontend" / "app.html").read_text(encoding="utf-8")
+    assert 'id="provider"' in page
+    assert "GENERATION ROUTE" in page
+    assert "provider:$('provider').value||undefined" in page
+    assert "x.provider||'unknown provider'" in page
+
+def test_provider_defaults_never_cross_price_or_fallback_boundaries(monkeypatch):
+    monkeypatch.setattr(config, "RECALL_PROVIDER", "google")
+    monkeypatch.setattr(config, "RECALL_MODEL", None)
+    monkeypatch.setattr(config, "GOOGLE_MODEL_IMAGE", "gemini-image")
+    monkeypatch.setattr(config, "GMI_MODEL_IMAGE", "gmi-image")
+    monkeypatch.setattr(config, "RECALL_MODEL_COST_USD", 0.07)
+    monkeypatch.setattr(config, "RECALL_GOOGLE_MODEL_COST_USD", None)
+    monkeypatch.setattr(config, "RECALL_GMI_MODEL_COST_USD", 0.11)
+    monkeypatch.setattr(config, "RECALL_FALLBACK_MODELS", ["google-fallback"])
+    monkeypatch.setattr(config, "RECALL_GOOGLE_FALLBACK_MODELS", [])
+    monkeypatch.setattr(config, "RECALL_GMI_FALLBACK_MODELS", [])
+    assert config.default_model_for("gmi") == "gmi-image"
+    assert config.model_cost_for("gmi", "gmi-image") == 0.11
+    assert config.model_cost_for("gmi", "custom-gmi-model") is None
+    assert config.fallback_models_for("google") == ["google-fallback"]
+    assert config.fallback_models_for("gmi") == []
+
+
+def test_external_capture_fork_defaults_to_configured_generation_route(monkeypatch):
+    memory = MemoryStore(); row = sample(memory); main._store = memory
+    row["provider"] = "bring-your-own"
+    row["model"] = "external-model"
+    row["provenance_kind"] = "external_capture"
+    memory.save_generation(row)
+    seen = {}
+    monkeypatch.setattr(config, "GOOGLE_API_KEY", "configured")
+    monkeypatch.setattr(config, "GMI_API_KEY", None)
+    monkeypatch.setattr(config, "RECALL_PROVIDER", "google")
+
+    def generate_fork(self, **kwargs):
+        seen.update(kwargs)
+        return {**row, "gen_id":"gen_external_fork", "provider":kwargs["provider"], "model":kwargs["model"] or "gemini-image", "parent_gen_id":"gen_demo"}
+
+    monkeypatch.setattr(main.RecallPipeline, "generate", generate_fork)
+    response = TestClient(main.app).post("/api/v1/gen/gen_demo/fork", headers={"X-Forwarded-For":"198.51.100.203"}, json={"prompt":"turn this capture into a launch variation"})
+    assert response.status_code == 200
+    assert seen["provider"] == "google"
+    assert seen["model"] is None
+
+def test_native_sink_private_b2_url_uses_authenticated_store(monkeypatch):
+    class AuthenticatedStore:
+        mode = "b2"
+        workspace_id = None
+        def __init__(self): self.requested = None
+        def get(self, key): self.requested = key; return b"native-sink-bytes"
+
+    store = AuthenticatedStore()
+    monkeypatch.setattr(config, "B2_BUCKET", "recall-production")
+    monkeypatch.setattr(config, "B2_REGION", "us-east-005")
+    monkeypatch.setattr(config, "B2_S3_ENDPOINT", None)
+    result = RecallPipeline(store)._read_asset("https://s3.us-east-005.backblazeb2.com/recall-production/recall/genblaze/runs/run-1/output.png")
+    assert result == b"native-sink-bytes"
+    assert store.requested == "recall/genblaze/runs/run-1/output.png"
+
+
+def test_native_sink_cannot_cross_workspace_boundary(monkeypatch):
+    class WorkspaceStore:
+        mode = "b2"
+        workspace_id = "ws-private"
+        def get(self, key): raise AssertionError("cross-workspace object must not be read")
+
+    monkeypatch.setattr(config, "B2_BUCKET", "recall-production")
+    monkeypatch.setattr(config, "B2_REGION", "us-east-005")
+    monkeypatch.setattr(config, "B2_S3_ENDPOINT", None)
+    try:
+        RecallPipeline(WorkspaceStore())._read_asset("https://s3.us-east-005.backblazeb2.com/recall-production/recall/genblaze/runs/other/output.png")
+    except RuntimeError as exc:
+        assert "outside the active workspace" in str(exc)
+    else:
+        raise AssertionError("workspace boundary must be enforced")
+
+def test_provider_errors_redact_internal_urls():
+    message = _safe_error("401 for https://s3.example.test/private/object.png?token=secret followed by failure")
+    assert "https://" not in message
+    assert "token=secret" not in message
+    assert "401" in message
+    assert "[redacted-url]" in message

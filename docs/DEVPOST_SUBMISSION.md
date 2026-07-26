@@ -72,7 +72,7 @@ Recall and Trueprint solve different problems at different points in the media l
 | Success metric | Paid calls safely avoided | Claims accurately verified or challenged |
 ## Challenges we ran into
 
-The native Genblaze ObjectStorageSink path returned a B2 401 after a provider successfully produced a local-file asset, while direct B2 persistence with the same bucket and credentials worked. Recall handles this safely by preserving the exact bytes and raw Genblaze manifest directly in B2, and includes a documented reproduction for Genblaze feedback. We also had to separate exact retrieval from model replay: exact B2 retrieval is the reliable, free default; a new model run is honestly treated as a paid variation.
+The native Genblaze ObjectStorageSink initially returned an unsigned URL for an object in our private B2 bucket, so a normal HTTP read received 401 even though the upload succeeded. We fixed the integration without weakening bucket privacy: Recall accepts only its configured B2 host and bucket, reads the sink object through authenticated storage, enforces workspace prefixes, and verifies the canonical archive. A live end-to-end run now records both `native_b2_sink: true` and `manifest_verified: true`. We also separated exact retrieval from model replay: exact B2 retrieval is the reliable, free default; a new model run is honestly treated as a paid variation.
 
 ## Accomplishments we are proud of
 
@@ -89,7 +89,7 @@ Production-minded generative media needs more than a provider call. The valuable
 
 ## What's next
 
-Team workspaces and scoped API keys for customer integrations; larger semantic indexes; multimodal video/audio workflows; and a fully repaired native ObjectStorageSink path once the provider/local-file B2 issue is resolved.
+Larger semantic indexes, more provider adapters, multimodal video and audio workflows, and team-level policy analytics across private workspaces.
 
 ## Repository access
 

@@ -47,4 +47,4 @@
 ## Honest limitations to state
 
 - Retrieval is bit-exact because it serves the stored B2 object. A provider replay is a new paid model run and may not be bit-exact for nondeterministic providers.
-- Native Genblaze ObjectStorageSink is feature-gated because the current provider/local-file output combination produced a reproducible B2 401; Recall still persists the original output and raw manifest directly to B2. The detailed reproduction is in `GENBLAZE_SINK_ISSUE.md`.
+- Native Genblaze ObjectStorageSink is verified against private B2. Recall retrieves only from its configured B2 host and bucket through authenticated storage, enforces workspace prefixes, then verifies and archives the canonical result. The diagnosis and proof are in `GENBLAZE_SINK_ISSUE.md`.

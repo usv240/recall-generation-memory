@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import math
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,10 @@ from .config import config
 from .storage import RecallStore, now
 from .semantic import embed
 from .media import image_dhash
+
+def _safe_error(value: Any, limit: int = 180) -> str:
+    text = re.sub(r"https?://[^\s]+", "[redacted-url]", str(value))
+    return text[:limit]
 
 def _manifest_document(manifest: Any) -> dict[str, Any]:
     if manifest is None: return {}
@@ -44,14 +49,22 @@ def manifest_summary(manifest: Any, parent_run_id: str | None) -> dict[str, Any]
 
 class RecallPipeline:
     def __init__(self,store:RecallStore)->None: self.store=store
-    def generate(self,*,prompt:str,model:str,params:dict[str,Any],tags:list[str],parent_id:str|None=None,intent:dict[str, Any]|None=None)->dict[str,Any]:
+    def generate(self,*,prompt:str,model:str|None,params:dict[str,Any],tags:list[str],provider:str|None=None,parent_id:str|None=None,intent:dict[str, Any]|None=None)->dict[str,Any]:
+        provider_name=(provider or config.default_generation_provider).casefold()
+        if provider_name not in {"google", "gmi"}:
+            raise ValueError(f"unsupported generation provider: {provider_name}")
+        if not config.provider_is_configured(provider_name):
+            raise RuntimeError(f"{provider_name} generation is not configured")
+        model=model or config.default_model_for(provider_name)
         gen_id=f"gen_{uuid.uuid4().hex[:12]}"; parent_run_id=None
         if parent_id:
             parent=self.store.generation(parent_id)
             if not parent: raise ValueError("parent generation not found")
             parent_run_id=parent.get("genblaze",{}).get("run_id") or parent_id
-        output, summary, raw_manifest=self._run_genblaze(prompt,model,params,parent_run_id)
-        if output is None: raise RuntimeError("Live generation did not return an asset. Nothing was archived; check provider access or model support.")
+        output, summary, raw_manifest=self._run_genblaze(prompt,model,params,parent_run_id,provider_name)
+        if output is None:
+            detail = str(summary.get("error", "provider returned no asset"))[:300]
+            raise RuntimeError(f"Live generation did not return an asset. Nothing was archived: {detail}")
         if len(output) > config.RECALL_MAX_GENERATED_MEDIA_BYTES: raise RuntimeError("Generated media exceeds the configured archive limit; nothing was stored.")
         extension,content_type=self._image_format(output)
         asset=self.store.put(f"recall/assets/{gen_id}/output.{extension}",output,content_type); asset["content_type"]=content_type
@@ -61,12 +74,12 @@ class RecallPipeline:
             summary["canonical_hash"] = canonical_hash
         summary["manifest_verified"] = manifest_verified
         raw_key=f"recall/genblaze-manifests/{gen_id}.json"; self.store.put(raw_key,json.dumps(raw_manifest,indent=2,default=str).encode(),"application/json")
-        recipe={"generation":gen_id,"created":now(),"prompt":prompt,"model":model,"params":params,"provider":config.RECALL_PROVIDER,"genblaze":summary,"raw_manifest_key":raw_key}
+        recipe={"generation":gen_id,"created":now(),"prompt":prompt,"model":model,"params":params,"provider":provider_name,"genblaze":summary,"raw_manifest_key":raw_key}
         manifest_key=f"recall/manifests/{gen_id}.json"; self.store.put(manifest_key,json.dumps(recipe,indent=2).encode(),"application/json")
         cost=summary.get("cost_usd") if summary else None
         vector=embed(prompt)
         semantic={"model":config.GOOGLE_EMBEDDING_MODEL,"embedding":vector} if vector else None
-        row={"gen_id":gen_id,"created":recipe["created"],"modality":"image","prompt":prompt,"provider":config.RECALL_PROVIDER,"model":model,"params":params,"tags":tags,"genblaze":summary,"asset":asset,"manifest_key":manifest_key,"raw_manifest_key":raw_key,"cost_usd":float(cost) if cost is not None else None,"parent_gen_id":parent_id,"intent":intent or {},"media_fingerprint":media_fingerprint,"locked":False,"approval":None,"semantic":semantic}
+        row={"gen_id":gen_id,"created":recipe["created"],"modality":"image","prompt":prompt,"provider":provider_name,"model":model,"params":params,"tags":tags,"genblaze":summary,"asset":asset,"manifest_key":manifest_key,"raw_manifest_key":raw_key,"cost_usd":float(cost) if cost is not None else None,"parent_gen_id":parent_id,"intent":intent or {},"media_fingerprint":media_fingerprint,"locked":False,"approval":None,"semantic":semantic}
         self.store.save_generation(row); return row
     @staticmethod
     def _image_format(data:bytes)->tuple[str,str]:
@@ -74,9 +87,26 @@ class RecallPipeline:
         if data.startswith(b"\x89PNG\r\n\x1a\n"): return "png","image/png"
         if data.startswith(b"RIFF") and data[8:12]==b"WEBP": return "webp","image/webp"
         return "bin","application/octet-stream"
-    @staticmethod
-    def _read_asset(url:str)->bytes:
+    def _read_asset(self,url:str)->bytes:
         limit = config.RECALL_MAX_GENERATED_MEDIA_BYTES
+        parsed = urlparse(url)
+        trusted_hosts = {f"s3.{config.B2_REGION}.backblazeb2.com"}
+        if config.B2_S3_ENDPOINT:
+            trusted_hosts.add(urlparse(config.B2_S3_ENDPOINT).hostname or "")
+        bucket_prefix = f"/{config.B2_BUCKET}/"
+        if self.store.mode == "b2" and parsed.scheme == "https" and parsed.hostname in trusted_hosts and parsed.path.startswith(bucket_prefix):
+            physical_key = unquote(parsed.path[len(bucket_prefix):])
+            if self.store.workspace_id:
+                workspace_prefix = f"recall/workspaces/{self.store.workspace_id}/"
+                if not physical_key.startswith(workspace_prefix):
+                    raise RuntimeError("Native sink returned an asset outside the active workspace")
+                logical_key = "recall/" + physical_key.removeprefix(workspace_prefix)
+            else:
+                logical_key = physical_key
+            data = self.store.get(logical_key)
+            if len(data) > limit:
+                raise RuntimeError("Provider asset exceeds the configured archive limit")
+            return data
         if url.startswith("file:"):
             path=unquote(urlparse(url).path)
             if path.startswith("/") and len(path)>2 and path[2]==":": path=path[1:]
@@ -99,29 +129,32 @@ class RecallPipeline:
         from genblaze_core import ObjectStorageSink,KeyStrategy
         from genblaze_s3 import S3StorageBackend
         backend=S3StorageBackend.for_backblaze(config.B2_BUCKET,region=config.B2_REGION,key_id=config.B2_KEY_ID,app_key=config.B2_APP_KEY,preflight=True)
-        return ObjectStorageSink(backend,prefix="recall/genblaze",key_strategy=KeyStrategy.HIERARCHICAL)
-    def _run_genblaze(self,prompt:str,model:str,params:dict[str,Any],parent_run_id:str|None)->tuple[bytes|None,dict[str,Any],dict[str,Any]]:
-        if not config.has_generation_provider:
+        sink_prefix = f"recall/workspaces/{self.store.workspace_id}/genblaze" if self.store.workspace_id else "recall/genblaze"
+        return ObjectStorageSink(backend,prefix=sink_prefix,key_strategy=KeyStrategy.HIERARCHICAL)
+    def _run_genblaze(self,prompt:str,model:str,params:dict[str,Any],parent_run_id:str|None,provider_name:str)->tuple[bytes|None,dict[str,Any],dict[str,Any]]:
+        if not config.provider_is_configured(provider_name):
             return None,{},{}
         errors:list[str]=[]
         for attempt in range(1, config.RECALL_GENERATION_RETRIES + 1):
             try:
                 import genblaze as g
                 from .providers import RecallImageProvider,RecallGoogleImageProvider
-                if config.RECALL_PROVIDER=="google":
+                if provider_name=="google":
                     provider=RecallGoogleImageProvider(api_key=config.GOOGLE_API_KEY)
                 else:
                     provider=RecallImageProvider(api_key=config.GMI_API_KEY,base_url=config.GMI_IMAGE_BASE_URL)
                 pipeline=g.Pipeline("recall-generate").step(
                     provider,model=model,prompt=prompt,modality=g.Modality.IMAGE,params=params,
-                    fallback_models=config.RECALL_FALLBACK_MODELS or None,
+                    fallback_models=config.fallback_models_for(provider_name) or None,
                 )
-                result=pipeline.run(sink=self._sink(),timeout=300,raise_on_failure=False)
+                native_sink = self._sink()
+                result=pipeline.run(sink=native_sink,timeout=300,raise_on_failure=False)
                 manifest=getattr(result,"manifest",None)
                 raw=_manifest_document(manifest)
                 summary=manifest_summary(manifest,parent_run_id)
                 summary["attempt"] = attempt
-                summary["fallback_models"] = config.RECALL_FALLBACK_MODELS
+                summary["native_b2_sink"] = native_sink is not None
+                summary["fallback_models"] = config.fallback_models_for(provider_name)
                 steps = getattr(getattr(result,"run",None),"steps",[]) or []
                 for step in steps:
                     for asset in getattr(step,"assets",[]) or []:
@@ -136,12 +169,13 @@ class RecallPipeline:
                                     provider_cost = candidate if math.isfinite(candidate) and candidate >= 0 else None
                                 except (TypeError, ValueError):
                                     provider_cost = None
-                            summary["cost_usd"] = provider_cost if provider_cost is not None else config.RECALL_MODEL_COST_USD
-                            summary["price_source"] = "provider" if provider_cost is not None else ("configured_model_price" if config.RECALL_MODEL_COST_USD is not None else "unknown")
-                            summary["native_asset_url"]=asset.url
+                            configured_cost = config.model_cost_for(provider_name, model)
+                            summary["cost_usd"] = provider_cost if provider_cost is not None else configured_cost
+                            summary["price_source"] = "provider" if provider_cost is not None else ("configured_model_price" if configured_cost is not None else "unknown")
+
                             return self._read_asset(asset.url),summary,raw
-                diagnostics = [f"{getattr(step, 'status', 'unknown')}: {str(getattr(step, 'error', '') or getattr(step, 'error_code', '') or 'no asset')[:180]}" for step in steps]
+                diagnostics = [f"{getattr(step, 'status', 'unknown')}: {_safe_error(getattr(step, 'error', '') or getattr(step, 'error_code', '') or 'no asset')}" for step in steps]
                 errors.append(f"attempt {attempt}: provider returned no image asset" + (" (" + " | ".join(diagnostics) + ")" if diagnostics else ""))
             except Exception as exc:
-                errors.append(f"attempt {attempt}: {str(exc)[:180]}")
+                errors.append(f"attempt {attempt}: {_safe_error(exc)}")
         return None,{"error":" | ".join(errors),"attempts":config.RECALL_GENERATION_RETRIES},{}
