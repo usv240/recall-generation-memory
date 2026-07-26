@@ -37,7 +37,7 @@ Move the pointer slowly across **Generate once. Reuse forever.**, then the live 
 
 ### Say
 
-"Meet Maya. She is launching a campaign today. Her team created the perfect image last week, but nobody can find it. So someone generates it again, pays again, and gets different pixels. Recall stops that before another model is charged."
+"Meet Maya. She is launching a campaign today. Her team created the perfect image last week, but nobody can find it. So someone generates it again, pays again, and gets different pixels. Recall checks first, before anyone pays for another generation."
 
 ## 0:18 to 0:38 | Show the simple workflow
 
@@ -71,13 +71,15 @@ Pause for two seconds when the match panel appears. Point to:
 - **EXACT B2 DOWNLOAD: $0.00 model cost**
 - **Paid model call paused**
 
+As you say **retrieve**, **reject**, and **generate something new**, point in order to **Download exact original**, **Wrong match**, and **Generate anyway**.
+
 ### Say
 
 "This is a paraphrase, not the original prompt. Recall finds the cobalt asset, checks its intent, and pauses the provider call. Maya can retrieve it, reject it, or deliberately generate something new. She stays in control."
 
 ### Do
 
-Click **Download exact original**. Move the pointer into empty space and hold for three seconds so judges can absorb the zero-dollar choice and the paused model call. Let the download complete. Point to the confirmation message, then briefly point to **Saved by Recall** and **Paid calls avoided** after they update.
+Click **Download exact original**. Move the pointer into empty space and remain completely silent for three seconds so judges can absorb the zero-dollar choice and paused model call. Begin the next narration only after this pause. Let the download complete. Point to the confirmation message, then briefly point to **Saved by Recall** and **Paid calls avoided** after they update.
 
 ### Say
 
@@ -103,7 +105,7 @@ Do not click **Paid recipe replay**.
 
 ### Say
 
-"Everything behind this asset is preserved: the exact B2 file, its verified fingerprint, how it was generated, what it cost, and every variation that followed. Exact download is bit-for-bit. Replay is separate, paid, and may differ."
+"Everything behind this asset is preserved: the exact B2 file, its verified hash, how it was generated, what it cost, and every variation that followed. Exact download is bit-for-bit. Replay is separate, paid, and may differ."
 
 ## 1:38 to 2:10 | Show real multimodal and provider orchestration
 
@@ -119,7 +121,7 @@ Scroll back to the library and clear the search. The newest proof cards appear f
 
 ### Say
 
-"Recall is provider-neutral and multimodal. Google could not complete this generation, so Recall continued on GMI, preserved both attempts, and recorded exactly what happened. This real Seedance video followed the same Genblaze-to-B2 path. Its child preserves parent lineage, verified provenance, and native B2 storage. Media types remain safely isolated."
+"Recall is provider-neutral and multimodal. Google could not complete this generation, so Recall continued on GMI, preserved both attempts, and recorded exactly what happened. This real Seedance video followed the same Genblaze-to-B2 path. The child preserves its parent lineage, verified provenance, and native B2 storage. Media types remain safely isolated."
 
 ## 2:10 to 2:34 | Show production workflow
 
@@ -129,7 +131,7 @@ Return to the library. Search for:
 
     final audit asset
 
-Point to **Approved and retention locked** and pause briefly. Clear the search. Click **Export savings CSV**, move the pointer away, and let the confirmation remain visible for a moment.
+Point to **Approved and retention locked** and pause briefly. Clear the search. Click **Export savings CSV**, move the pointer away, and let the confirmation remain visible for a moment. During the final sentence, pause briefly after **private workspaces**, **durable jobs**, and **an API**.
 
 ### Say
 
@@ -143,7 +145,7 @@ Press **Home** to return to the workspace headline and live metrics. End with th
 
 ### Say
 
-"B2 keeps the durable media and evidence. Genblaze orchestrates models and providers. For Maya, Recall turns another generation into one search and an exact answer. For her company, it is one less model bill. That is Recall. Generate once. Reuse forever."
+"B2 keeps the durable media and evidence. Genblaze orchestrates models and providers. For Maya, Recall turns another generation into one search and the exact original. For her company, it is one less model bill. That is Recall. Generate once. Reuse forever."
 
 ## Recording direction
 
