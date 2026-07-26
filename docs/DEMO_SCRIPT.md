@@ -1,6 +1,6 @@
 # Recall: prize demo script
 
-Target length: 2 minutes 52 seconds. The rules require a video shorter than three minutes, and judges are not required to watch beyond that point.
+Target length: 2 minutes 45 to 48 seconds. The rules require a video shorter than three minutes, and judges are not required to watch beyond that point.
 
 ## The story
 
@@ -39,7 +39,7 @@ Move the pointer slowly across **Generate once. Reuse forever.**, then the live 
 
 "Meet Maya. She is launching a campaign today. Her team created the perfect image last week, but nobody can find it. So someone generates it again, pays again, and gets different pixels. Recall checks first, before anyone pays for another generation."
 
-## 0:18 to 0:38 | Show the simple workflow
+## 0:18 to 0:36 | Show the simple workflow
 
 ### On screen
 
@@ -53,7 +53,7 @@ Point to **Describe what you need**, **Recall checks first**, and **You stay in 
 
 "Maya describes the need in everyday language. Before any paid provider runs, Recall searches shared memory and checks whether an existing match is safe to reuse."
 
-## 0:38 to 1:08 | Create the memorable reuse moment
+## 0:36 to 1:05 | Create the memorable reuse moment
 
 ### Do
 
@@ -71,7 +71,7 @@ Pause for two seconds when the match panel appears. Point to:
 - **EXACT B2 DOWNLOAD: $0.00 model cost**
 - **Paid model call paused**
 
-As you say **retrieve**, **reject**, and **generate something new**, point in order to **Download exact original**, **Wrong match**, and **Generate anyway**.
+Before speaking, move deliberately across **Download exact original**, **Wrong match**, and **Generate anyway**, with a short pause on each choice. Then rest the pointer in empty space while delivering the narration.
 
 ### Say
 
@@ -85,7 +85,7 @@ Click **Download exact original**. Move the pointer into empty space and remain 
 
 "I choose the original. Recall recommends. Maya decides. Recall downloads the exact stored B2 bytes. No model runs, and the avoided cost is recorded. The cheapest generation is the one you never have to make."
 
-## 1:08 to 1:38 | Prove it is more than a folder
+## 1:05 to 1:33 | Prove it is more than a folder
 
 ### Do
 
@@ -107,7 +107,7 @@ Do not click **Paid recipe replay**.
 
 "Everything behind this asset is preserved: the exact B2 file, its verified hash, how it was generated, what it cost, and every variation that followed. Exact download is bit-for-bit. Replay is separate, paid, and may differ."
 
-## 1:38 to 2:10 | Show real multimodal and provider orchestration
+## 1:33 to 2:04 | Show real multimodal and provider orchestration
 
 ### Do
 
@@ -123,7 +123,7 @@ Scroll back to the library and clear the search. The newest proof cards appear f
 
 "Recall is provider-neutral and multimodal. Google could not complete this generation, so Recall continued on GMI, preserved both attempts, and recorded exactly what happened. This real Seedance video followed the same Genblaze-to-B2 path. The child preserves its parent lineage, verified provenance, and native B2 storage. Media types remain safely isolated."
 
-## 2:10 to 2:34 | Show production workflow
+## 2:04 to 2:29 | Show production workflow
 
 ### Do
 
@@ -135,9 +135,9 @@ Point to **Approved and retention locked** and pause briefly. Clear the search. 
 
 ### Say
 
-"Approved work becomes a B2 Object Lock-protected final. This prompt-free CSV exports spend, reuse, savings, lineage, fallback, verification, and retention. Recall also offers private workspaces, durable jobs, an API, and the published recall-relay package."
+"Approved work becomes an Object Lock-protected copy in B2. This prompt-free CSV exports spend, reuse, savings, lineage, fallback, verification, and retention. Recall also offers private workspaces, durable jobs, an API, and the published recall-relay package."
 
-## 2:34 to 2:52 | Close on the product thesis
+## 2:29 to 2:48 | Close on the product thesis
 
 ### Do
 
@@ -156,6 +156,7 @@ Press **Home** to return to the workspace headline and live metrics. End with th
 - Let real UI labels carry technical detail. Do not read hashes or generation IDs aloud.
 - Do not wait for a new image or video generation during the recording. The existing public artifacts are real and already prove generation, fallback, storage, manifests, and lineage.
 - Use one continuous product story. Avoid phrases such as "next feature" or "we also built."
+- Rehearse toward a finished runtime of 2:45 to 2:48. If a take exceeds 2:48, first cut: "The cheapest generation is the one you never have to make."
 
 ## Judge coverage check
 
