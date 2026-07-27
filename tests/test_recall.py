@@ -483,7 +483,7 @@ def test_frontend_has_no_dead_end_reuse_gate_or_encoding_regression():
     assert "A folder waits until after you remember" in landing
     assert "fetch('/api/v1/savings')" in landing
     assert "Loading" not in landing and "{{RECALL_SAVINGS_MULTIPLE}}" in landing
-    assert "The whole idea in one minute" in landing
+    assert "One memory before the next model call" in landing
     assert all(label in landing for label in ("WHAT", "HOW", "WHY"))
     assert "function installHelp" in landing and "data-help=" in landing
     assert "Plain-English" not in source and "data-tip=" not in source
@@ -499,6 +499,9 @@ def test_frontend_has_no_dead_end_reuse_gate_or_encoding_regression():
         buttons = re.findall(r"<button\b[^>]*>", page_source)
         assert buttons
         assert all("data-help=" in button for button in buttons)
+        assert "help-control" not in page_source
+        assert "info-button" not in page_source
+        assert "help-popover" not in page_source
     assert not any(marker in source for marker in ("Ã", "â", "Â", "�"))
     for page in frontend.glob("*.html"):
         page_source = page.read_text(encoding="utf-8")
@@ -551,6 +554,13 @@ def test_frontend_themes_have_accessible_semantic_roles_and_progressive_disclosu
     assert "helpPopover" not in landing and "helpPopover" not in workspace
     assert "createElement('button')" not in landing and "createElement('button')" not in workspace
     assert ".onboarding{display:flex" in workspace
+
+    main._store = MemoryStore()
+    client = TestClient(main.app)
+    for path in ("/", "/app"):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store, max-age=0"
 
 def test_exact_reuse_match_skips_external_embedding_call(monkeypatch):
     import backend.app.reuse as reuse_module

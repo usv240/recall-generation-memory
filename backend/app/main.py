@@ -39,6 +39,7 @@ from .storage import RecallStore, now
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = ROOT / "frontend"
 logger = logging.getLogger("recall")
+PAGE_HEADERS = {"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
 
 
 @asynccontextmanager
@@ -1026,13 +1027,13 @@ def object_file(key: str, expires: int = 0, signature: str = "") -> Response:
 
 
 @app.get("/gen/{gen_id}", response_class=HTMLResponse)
-def certificate_page(gen_id: str) -> str:
+def certificate_page(gen_id: str) -> HTMLResponse:
     if not store().generation(gen_id):
         raise HTTPException(404, "generation not found")
-    return (FRONTEND / "certificate.html").read_text(encoding="utf-8")
+    return HTMLResponse((FRONTEND / "certificate.html").read_text(encoding="utf-8"), headers=PAGE_HEADERS)
 
 @app.get("/", response_class=HTMLResponse)
-def landing_page() -> str:
+def landing_page() -> HTMLResponse:
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
     try:
         metrics = savings()
@@ -1040,7 +1041,7 @@ def landing_page() -> str:
         logger.exception("Landing metrics could not be rendered")
         for token in ("{{RECALL_TOTAL_SPENT}}", "{{RECALL_TOTAL_SAVED}}", "{{RECALL_ASSET_COUNT}}", "{{RECALL_SAVINGS_MULTIPLE}}"):
             html = html.replace(token, "Unavailable")
-        return html
+        return HTMLResponse(html, headers=PAGE_HEADERS)
     replacements = {
         "{{RECALL_TOTAL_SPENT}}": f"${metrics['total_spent']:.2f}",
         "{{RECALL_TOTAL_SAVED}}": f"${metrics['total_saved']:.2f}",
@@ -1049,9 +1050,9 @@ def landing_page() -> str:
     }
     for token, value in replacements.items():
         html = html.replace(token, value)
-    return html
+    return HTMLResponse(html, headers=PAGE_HEADERS)
 
 
 @app.get("/app", response_class=HTMLResponse)
-def app_page() -> str:
-    return (FRONTEND / "app.html").read_text(encoding="utf-8")
+def app_page() -> HTMLResponse:
+    return HTMLResponse((FRONTEND / "app.html").read_text(encoding="utf-8"), headers=PAGE_HEADERS)
