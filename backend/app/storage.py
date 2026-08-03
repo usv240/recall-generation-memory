@@ -105,7 +105,7 @@ class RecallStore:
         out=[]
         for key in self.list_keys("recall/index/runs"):
             try: out.append(json.loads(self.get(key)))
-            except (OSError, json.JSONDecodeError): pass
+            except Exception: pass  # skip an unreadable or B2-capped record; still return the rest
         return sorted(out, key=lambda row: row.get("created", ""), reverse=True)
     def record_event(self, event: dict[str, Any]) -> None: self.put(f"recall/index/events/{event['event_id']}.json", json.dumps(event).encode(), "application/json")
     def save_receipt(self, receipt: dict[str, Any]) -> dict[str, Any]:
@@ -117,7 +117,7 @@ class RecallStore:
         out=[]
         for key in self.list_keys("recall/ledger"):
             try: out.append(json.loads(self.get(key)))
-            except (OSError, json.JSONDecodeError): pass
+            except Exception: pass  # skip an unreadable or B2-capped record; still return the rest
         return sorted(out, key=lambda row: row.get("created", ""))
     def save_job(self, job: dict[str, Any]) -> None: self.put(f"recall/index/jobs/{job['job_id']}.json", json.dumps(job, indent=2).encode(), "application/json")
     def job(self, job_id: str) -> dict[str, Any] | None:
@@ -127,13 +127,13 @@ class RecallStore:
         out=[]
         for key in self.list_keys("recall/index/jobs"):
             try: out.append(json.loads(self.get(key)))
-            except (OSError, json.JSONDecodeError): pass
+            except Exception: pass  # skip an unreadable or B2-capped record; still return the rest
         return sorted(out, key=lambda row: row.get("created", ""), reverse=True)
     def events(self) -> list[dict[str, Any]]:
         out=[]
         for key in self.list_keys("recall/index/events"):
             try: out.append(json.loads(self.get(key)))
-            except (OSError, json.JSONDecodeError): pass
+            except Exception: pass  # skip an unreadable or B2-capped record; still return the rest
         return out
     # Workspace identities always live in the unscoped system registry.
     def save_workspace(self, workspace: dict[str, Any]) -> None:
@@ -149,7 +149,7 @@ class RecallStore:
         out=[]
         for key in self.list_keys("recall/index/feedback"):
             try: out.append(json.loads(self.get(key)))
-            except (OSError, json.JSONDecodeError): pass
+            except Exception: pass  # skip an unreadable or B2-capped record; still return the rest
         return out
     def approve(self, row: dict[str, Any]) -> dict[str, Any]:
         data=self.get(row["asset"]["b2_key"]); content_type=row["asset"].get("content_type", "application/octet-stream")
